@@ -1,4 +1,4 @@
-# 📦 Remote App Uninstaller — WPF GUI for Windows Application Management
+# 📦 Remote App Uninstaller
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
