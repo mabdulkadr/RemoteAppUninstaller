@@ -137,9 +137,8 @@ This project is licensed under the [MIT License](https://opensource.org/licenses
 ## 👤 Author
 
 **Mohammad Abdulkader Omar**  
-Organization: **Qassim University — IT Operations**  
-LinkedIn: [linkedin.com/in/mabdulkadr](https://www.linkedin.com/in/mabdulkadr)  
-Version: **1.0** — Updated: **2026-08-05**
+Website: https://momar.tech  
+Version: **1.0**
 
 ---
 
