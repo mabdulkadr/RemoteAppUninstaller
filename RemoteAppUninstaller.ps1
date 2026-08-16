@@ -1,135 +1,33 @@
 ﻿<#
 .SYNOPSIS
-    Remote App Uninstaller v1.0 — WPF GUI to inventory and uninstall applications
-    on the local computer or a remote Windows computer.
+    Remote App Uninstaller GUI - Inventory and uninstall applications on local or remote Windows devices.
 
 .DESCRIPTION
-    Remote App Uninstaller is a self-contained PowerShell WPF application that
-    provides a modern graphical interface for managing installed applications
-    across Windows machines.
+    This script provides a WPF-based graphical user interface to inventory installed applications
+    and silently uninstall them on the local machine or across remote Windows targets. It features
+    registry-based inventory (64-bit and 32-bit views), WinRM remote access, silent-switch detection,
+    WinGet fallback, and leftover cleanup.
 
-    Core capabilities:
-
-      - Automatic local inventory on startup (registry-based, both 64-bit and
-        32-bit HKLM Uninstall views). The sidebar badge shows "This PC".
-      - Remote target support: type a computer name or IP in the sidebar,
-        press Enter (or click Load). The badge switches to "Remote".
-        Connectivity is tested via ICMP ping before WinRM access.
-      - Live Remote PC card: displays connectivity status (Connected/Offline),
-        device name, IP address, logged-on user, and OS version.
-      - Stats dashboard: Total apps, MSI count, EXE/Other count, and
-        Selected count — updated on every selection change.
-      - Real-time search with case-insensitive regex filtering across
-        Name, Publisher, and Version.
-      - Details pane: select an app to see Publisher, Version, InstallDate,
-        UninstallString, Product Code, Architecture, Scope, Registry Key,
-        and more. Context-menu or Ctrl+C to copy fields/rows.
-      - Silent uninstall engine: auto-detects installer type (MSI, Inno,
-        NSIS, Wise, InstallShield, generic EXE) and appends the correct
-        silent switches (/quiet, /VERYSILENT, /S, etc.). Uninstall runs in
-        a background Start-Job so the UI stays responsive; live output
-        streams to the Message Center and a summary dialog appears on finish.
-      - WinGet fallback: if the traditional uninstall fails, winget uninstall
-        --silent is attempted automatically.
-      - Post-uninstall cleanup: removes leftover registry entries, Program
-        Files folders, Start Menu shortcuts, and AppData remnants.
-      - CSV export: saves the currently filtered app list via a SaveFileDialog.
-
-.PARAMETER None
-    This script takes no command-line parameters. All interaction is performed
-    through the WPF graphical user interface.
+    Notes:
+    - Runs uninstalls in background jobs so the UI never freezes.
+    - Supports local targets (This PC) and remote computers via ICMP/WinRM pre-checks.
+    - Live output streams to the Message Center and logs are saved to %TEMP%\RemoteAppUninstaller-Logs\
 
 .EXAMPLE
     .\RemoteAppUninstaller.ps1
-
-    Launches the GUI. The local machine is inventoried automatically on startup.
-
-.EXAMPLE
-    powershell.exe -ExecutionPolicy Bypass -File .\RemoteAppManager-v1.0.ps1
-
-    Bypasses the PowerShell execution policy to run the script.
-
-.EXAMPLE
-    # To target a remote computer:
-    # 1. Launch the script.
-    # 2. Type the remote computer name in the sidebar.
-    # 3. Press Enter or click "Load Applications".
-
-.INPUTS
-    None. The script does not accept pipeline input.
-
-.OUTPUTS
-    None. All output is displayed in the WPF window and Message Center.
-
-    Log levels (color-coded in the Message Center):
-      INFO      — general operations (grey-blue)
-      DETAIL    — workflow and connectivity details (light blue)
-      RESULT    — success results (blue)
-      WARN      — non-fatal warnings (yellow)
-      ERROR     — failures (red)
-      SUMMARY   — uninstall job summaries (green)
+    Launches the GUI for local or remote application management.
 
 .NOTES
-    ===========================================================================
-    Requirements
-    ===========================================================================
-      - Windows PowerShell 5.1 or newer with WPF (.NET Framework).
-      - For remote targets: WinRM enabled on the target machine
-        (winrm quickconfig), the Windows Remote Management firewall rule
-        open, and administrative rights on the target.
-      - Workgroup targets may require TrustedHosts configuration or CredSSP.
-
-    ===========================================================================
-    Registry Touchpoints
-    ===========================================================================
-      HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall
-      HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall
-
-    ===========================================================================
-    File System Paths (cleanup phase)
-    ===========================================================================
-      C:\Program Files
-      C:\Program Files (x86)
-      C:\ProgramData\Microsoft\Windows\Start Menu\Programs
-      C:\Users\*\AppData
-
-    ===========================================================================
-    Script Structure (regions in file order)
-    ===========================================================================
-      01. ASSEMBLIES & GLOBALS
-      02. XAML — MAIN WINDOW (Part 1 / Part 2)
-      03. XAML LOADER (SAFE)
-      04. CONTROL BINDING (SAFE)
-      05. TARGET HELPERS
-      06. FOOTER LINK (OPTIONAL)
-      07. SESSION INFO (SIDEBAR)
-      08. UI INVOKE HELPERS
-      09. LOGGER (Update-Output)
-      10. LAST ACTION (OPTIONAL)
-      11. STATS (CARDS)
-      12. DETAILS PANES
-      13. COLLECTION VIEW + FILTER
-      14. GET-INSTALLEDAPPS
-      15. CONFIRMATION DIALOG
-      16. UNINSTALL SCRIPTBLOCK
-      17. JOB POLLING (DispatcherTimer)
-      18. BUTTON HANDLERS
-      19. UI EVENTS
-      20. INIT + SHOW WINDOW
-
-    ===========================================================================
-    Metadata
-    ===========================================================================
-      Script   : RemoteAppUninstaller.ps1
-      Version  : 1.0
-      Author   : Mohammad Omar
-      Org      : Qassim University — IT Operations
-      Updated  : 2026-08-05
-      License  : MIT
-
-.LINK
-    https://www.linkedin.com/in/mabdulkadr/
+    Author      : Mohammad Abdelkader Omar
+    Website     : https://momar.tech
+    LinkedIn    : https://www.linkedin.com/in/mabdulkadr/
+    Date        : 2026-08-16
+    Version     : 1.1
+    Changelog   :
+                    1.0 - Initial release.             
+                    1.1 - Reliability & remote-uninstall overhaul, UX polish, and documentation cleanup.
 #>
+
 #region ========================= ASSEMBLIES & GLOBALS ======================
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase | Out-Null
@@ -137,6 +35,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase | Ou
 # Script-scoped UI / helpers
 $script:Window     = $null
 $script:OutputBox  = $null
+$script:OutputCleaned = $false
 $script:brushConv  = New-Object System.Windows.Media.BrushConverter
 
 # Inventory/view
@@ -145,11 +44,21 @@ $Global:AppView        = $null
 $script:FilterPattern  = $null
 $script:LastDetailsKey = $null
 
-# Job + polling
-$Global:UninstallJob   = $null
-$Global:JobLinesSeen   = 0
-$Global:UninstallTotal  = 0
-$Global:UninstallDone   = 0
+# Job + polling (multiple concurrent uninstall jobs supported)
+$Global:UninstallJobs = @{}      # job id -> [pscustomobject] job state
+$script:JobRows       = @{}      # job id -> job state (for Stop-button handlers)
+$Global:NextJobId     = 0
+$script:AnyUninstallRan = $false
+
+# Background inventory load
+$Global:LoadJob       = $null
+$Global:LoadLinesSeen = 0
+$Global:LoadLogPath   = $null
+$Global:LoadActionLabel = "Load"
+
+# Live message channel: jobs append to a temp log file that the UI polls (works on PS 5.1).
+$script:LogDir = Join-Path ([System.IO.Path]::GetTempPath()) "RemoteAppUninstaller-Logs"
+New-Item -ItemType Directory -Path $script:LogDir -Force | Out-Null
 
 #endregion
 
@@ -182,21 +91,28 @@ $XAML = $null; [string]$XAML = @"
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                                CornerRadius="8" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5">
+                            <Grid>
+                                <Border x:Name="HoverOverlay" Background="Transparent" CornerRadius="5"/>
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Background" Value="#E2E8F0"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#CBD5E1"/>
                                 <Setter Property="Foreground" Value="#94A3B8"/>
                                 <Setter Property="Opacity" Value="0.7"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.92"/>
+                                <Setter TargetName="HoverOverlay" Property="Background" Value="#16000000"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="HoverOverlay" Property="Background" Value="#2B000000"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -212,10 +128,38 @@ $XAML = $null; [string]$XAML = @"
         <Style x:Key="BtnSecondary" TargetType="Button" BasedOn="{StaticResource BtnBase}">
             <Setter Property="Background" Value="#F1F5F9"/>
             <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
         </Style>
         <Style x:Key="BtnDanger" TargetType="Button" BasedOn="{StaticResource BtnBase}">
             <Setter Property="Background" Value="#DC2626"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
+        </Style>
+        <Style x:Key="BtnNav" TargetType="Button">
+            <Setter Property="Background" Value="#EEF2FF"/>
+            <Setter Property="Foreground" Value="#4338CA"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="5"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#E0E7FF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#C7D2FE"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="BtnGhost" TargetType="Button" BasedOn="{StaticResource BtnBase}">
             <Setter Property="Background" Value="Transparent"/>
@@ -224,7 +168,7 @@ $XAML = $null; [string]$XAML = @"
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="5"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                               TextBlock.Foreground="{TemplateBinding Foreground}"/>
@@ -257,15 +201,15 @@ $XAML = $null; [string]$XAML = @"
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="5"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                               TextBlock.Foreground="{TemplateBinding Foreground}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#1E293B"/>
-                                <Setter Property="Foreground" Value="#E2E8F0"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#273449"/>
+                                <Setter Property="Foreground" Value="#F8FAFC"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="#334155"/>
@@ -457,9 +401,8 @@ $XAML = $null; [string]$XAML = @"
                 <!-- Nav -->
                 <StackPanel Grid.Row="1" Margin="12,4">
                     <TextBlock Text="NAVIGATION" Margin="14,10,0,6" Style="{StaticResource CaptionText}" FontWeight="Bold"/>
-                    <Button Content="Applications" FontWeight="SemiBold" Height="36" Margin="2"
-                            HorizontalContentAlignment="Left" Padding="12,0"
-                            Background="#EEF2FF" Foreground="#4338CA" BorderThickness="0"/>
+                    <Button Content="Applications" Height="36" Margin="2" Padding="12,0"
+                            HorizontalContentAlignment="Stretch" Style="{StaticResource BtnNav}"/>
                 </StackPanel>
 
                 <!-- Remote Device -->
@@ -474,7 +417,9 @@ $XAML = $null; [string]$XAML = @"
                         <TextBox x:Name="PCNameBox" Height="32" Margin="0,0,0,8"
                                  ToolTip="Enter a computer name or leave empty for the local machine"/>
                         <Button x:Name="LoadAppsButton" Content="Load Applications" Height="34"
-                                Style="{StaticResource BtnPrimary}"/>
+                                Style="{StaticResource BtnPrimary}" ToolTip="Load apps from the target entered above (or local if empty)"/>
+                        <Button x:Name="LoadLocalButton" Content="Load This PC Apps" Height="34" Margin="0,6,0,0"
+                                Style="{StaticResource BtnSecondary}" ToolTip="Load apps from this computer only"/>
                     </StackPanel>
                 </Border>
 
@@ -556,7 +501,7 @@ $XAML = $null; [string]$XAML = @"
                         <TextBlock Text="Qassim University" FontSize="12" FontWeight="Bold" Foreground="#0F172A"/>
                         <TextBlock Text="IT Operations" FontSize="11" Foreground="#64748B"/>
                         <TextBlock FontSize="10.5" Foreground="#94A3B8" Margin="0,6,0,0">
-                            <Run Text="© 2025 · v1.0 · "/>
+                            <Run Text="© 2026 · v1.1 · "/>
                             <Hyperlink x:Name="FooterLink" NavigateUri="https://www.linkedin.com/in/mabdulkadr/">Mohammad Omar</Hyperlink>
                         </TextBlock>
                     </StackPanel>
@@ -570,7 +515,8 @@ $XAML = $null; [string]$XAML = @"
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="180"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="190" MinHeight="80"/>
             </Grid.RowDefinitions>
 
             <!-- Header -->
@@ -691,25 +637,36 @@ $XAML += @"
                                     Style="{StaticResource BtnGhost}" FontSize="11"/>
                         </Grid>
 
-                        <ListView x:Name="AppListView"
-                                  Grid.Row="1"
-                                  Margin="0,10,0,10"
-                                  SelectionMode="Extended"
-                                  Background="Transparent"
-                                  Foreground="#334155"
-                                  BorderBrush="#E2E8F0"
-                                  BorderThickness="1"
-                                  AlternationCount="2"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                            <ListView.View>
-                                <GridView>
-                                    <GridViewColumn Header="#" Width="42" DisplayMemberBinding="{Binding Index}"/>
-                                    <GridViewColumn Header="Name" Width="260" DisplayMemberBinding="{Binding Name}"/>
-                                    <GridViewColumn Header="Version" Width="90" DisplayMemberBinding="{Binding Version}"/>
-                                    <GridViewColumn Header="Publisher" Width="160" DisplayMemberBinding="{Binding Publisher}"/>
-                                </GridView>
-                            </ListView.View>
-                        </ListView>
+                        <Grid Grid.Row="1" Margin="0,10,0,10">
+                            <ListView x:Name="AppListView"
+                                      SelectionMode="Extended"
+                                      Background="Transparent"
+                                      Foreground="#334155"
+                                      BorderBrush="#E2E8F0"
+                                      BorderThickness="1"
+                                      AlternationCount="2"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="#" Width="42" DisplayMemberBinding="{Binding Index}"/>
+                                        <GridViewColumn Header="Name" Width="260" DisplayMemberBinding="{Binding Name}"/>
+                                        <GridViewColumn Header="Version" Width="90" DisplayMemberBinding="{Binding Version}"/>
+                                        <GridViewColumn Header="Publisher" Width="160" DisplayMemberBinding="{Binding Publisher}"/>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+
+                            <!-- Loading overlay (shown while apps load in the background) -->
+                            <Border x:Name="LoadingOverlay" Visibility="Collapsed" Background="#F8FAFC" Opacity="0.92">
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <ProgressBar x:Name="LoadingProgressBar" IsIndeterminate="True" Height="4" Width="260"
+                                                 Foreground="#4F46E5" Background="#E2E8F0" BorderThickness="0"/>
+                                    <TextBlock x:Name="LoadingText" Text="Loading apps..." FontSize="11.5"
+                                               Foreground="#475569" Margin="0,10,0,0" HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
 
                         <StackPanel Grid.Row="2" Margin="0,4,0,0">
                             <UniformGrid Columns="3" HorizontalAlignment="Stretch">
@@ -732,6 +689,7 @@ $XAML += @"
                                     <TextBlock x:Name="UninstallProgressText" Grid.Column="1" Text="0/0"
                                                FontSize="11" Foreground="#64748B" Margin="8,0,0,0" VerticalAlignment="Center"/>
                                 </Grid>
+                                <StackPanel x:Name="JobsPanel" Margin="0,8,0,0"/>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
@@ -756,7 +714,8 @@ $XAML += @"
                         <ListView x:Name="DetailsList" Grid.Row="2"
                                   Background="Transparent" BorderBrush="#E2E8F0" BorderThickness="1"
                                   AlternationCount="2" Foreground="#334155"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                             <ListView.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem x:Name="CopyDetailsField" Header="Copy Field"/>
@@ -769,7 +728,8 @@ $XAML += @"
                                     <GridViewColumn Header="Value" Width="270">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding Value}" TextWrapping="Wrap" VerticalAlignment="Center" Padding="4,2" FontSize="11.5"/>
+                                                <TextBlock Text="{Binding Value}" TextWrapping="Wrap" VerticalAlignment="Center" Padding="4,2" FontSize="11.5"
+                                                           ToolTip="{Binding Value}" ToolTipService.ShowDuration="60000" ToolTipService.InitialShowDelay="300"/>
                                             </DataTemplate>
                                         </GridViewColumn.CellTemplate>
                                     </GridViewColumn>
@@ -780,8 +740,13 @@ $XAML += @"
                 </Border>
             </Grid>
 
+            <!-- Resizable divider above the Message Center -->
+            <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                          Background="Transparent" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+                          Cursor="SizeNS" Margin="0,4,0,4"/>
+
             <!-- Message Center -->
-            <Border Grid.Row="3" Background="#0F172A" CornerRadius="8" Padding="14" Margin="0,14,0,0">
+            <Border Grid.Row="4" Background="#0F172A" CornerRadius="8" Padding="14" Margin="0,10,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -799,9 +764,6 @@ $XAML += @"
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Border Width="8" Height="8" CornerRadius="4" Background="#10B981" Margin="0,0,8,0"/>
                             <TextBlock Text="Message Center" Foreground="#F8FAFC" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                            <Border Background="#1E1B4B" Padding="4,2" CornerRadius="3" VerticalAlignment="Center" Margin="8,0,0,0">
-                                <TextBlock Text="LIVE" Foreground="#6366F1" FontSize="9" FontWeight="Bold"/>
-                            </Border>
                         </StackPanel>
                         <Button x:Name="CopyOutputButton" Grid.Column="2" Content="Copy"
                                 Style="{StaticResource BtnDarkGhost}" Margin="0,0,4,0"/>
@@ -813,7 +775,7 @@ $XAML += @"
 
                     <Border Grid.Row="2" CornerRadius="6" Background="#020617" BorderBrush="#1E293B" BorderThickness="1">
                         <RichTextBox x:Name="OutputBox"
-                                     Background="Transparent"
+                                     Background="#020617"
                                      Foreground="#CBD5E1"
                                      FontFamily="Cascadia Code,Consolas,monospace"
                                      FontSize="11.5"
@@ -885,6 +847,7 @@ catch {
 try {
     $PCNameBox           = Get-ControlOrFail $script:Window 'PCNameBox'
     $LoadAppsButton      = Get-ControlOrFail $script:Window 'LoadAppsButton'
+    $LoadLocalButton     = Get-ControlOrFail $script:Window 'LoadLocalButton'
     $RefreshButton       = Get-ControlOrFail $script:Window 'RefreshButton'
     $ExportButton        = Get-ControlOrFail $script:Window 'ExportButton'
     $UninstallButton     = Get-ControlOrFail $script:Window 'UninstallButton'
@@ -920,6 +883,11 @@ try {
     $UninstallProgressPanel  = $script:Window.FindName('UninstallProgressPanel')
     $UninstallProgressBar    = $script:Window.FindName('UninstallProgressBar')
     $UninstallProgressText   = $script:Window.FindName('UninstallProgressText')
+    $JobsPanel               = $script:Window.FindName('JobsPanel')
+
+    $LoadingOverlay          = $script:Window.FindName('LoadingOverlay')
+    $LoadingProgressBar      = $script:Window.FindName('LoadingProgressBar')
+    $LoadingText             = $script:Window.FindName('LoadingText')
 
     $DetailsList        = Get-ControlOrFail $script:Window 'DetailsList'
 
@@ -955,16 +923,6 @@ function Is-LocalTarget {
     return ($n -in @('.', 'LOCALHOST', $env:COMPUTERNAME.ToUpper()))
 }
 
-# Function: Test-TargetReachable
-# Pings (ICMP) a remote target; local targets always return $true. Used as a
-# cheap pre-check before attempting a WinRM inventory call.
-function Test-TargetReachable {
-    param([string]$ComputerName)
-
-    if (Is-LocalTarget $ComputerName) { return $true }
-    try { return (Test-Connection -ComputerName $ComputerName -Count 1 -Quiet -ErrorAction Stop) }
-    catch { return $false }
-}
 #endregion
 Pump-UI
 
@@ -1011,13 +969,16 @@ function Set-TargetBadge {
     }
 }
 
-# Function: Set-RemotePcStatus
-# Refreshes the "Remote PC" sidebar card: target badge, Connected/Offline status
-# dot, and the Device / IP / OS info (queried locally or via WinRM).
-function Set-RemotePcStatus {
+# Function: Update-Sidebar
+# Lightweight sidebar refresh from data already collected in the background
+# (no network/CIM queries on the UI thread).
+function Update-Sidebar {
     param(
         [string]$Target,
-        [bool]$Connected
+        [bool]$Connected,
+        [string]$IP = "-",
+        [string]$OS = "-",
+        [string]$User = ""
     )
 
     $displayName = if ([string]::IsNullOrWhiteSpace($Target)) { $env:COMPUTERNAME } else { $Target }
@@ -1025,65 +986,8 @@ function Set-RemotePcStatus {
 
     Set-TargetBadge -IsLocal $isLocal
 
-    $ip = "-"
-    $os = "-"
-
-    if ($Connected) {
-        try {
-            # Shared IP detection: try Get-NetIPAddress, fall back to DNS/WMI
-            function Get-PrimaryIP {
-                try {
-                    $ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-                        Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
-                        Select-Object -First 1).IPAddress
-                    if ($ip) { return $ip }
-                } catch {}
-                try {
-                    $hostEntry = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME)
-                    return ($hostEntry.AddressList | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.ToString() -notlike '127.*' } | Select-Object -First 1).ToString()
-                } catch {}
-                return $null
-            }
-
-            if ($isLocal) {
-                $ip = Get-PrimaryIP
-                $osInfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
-                if ($osInfo) { $os = "{0} {1}" -f $osInfo.Caption, $osInfo.Version }
-            } else {
-                $info = Invoke-Command -ComputerName $Target -ScriptBlock {
-                    $ipInfo = $null
-                    try {
-                        $ipInfo = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-                            Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
-                            Select-Object -First 1).IPAddress
-                    } catch {}
-                    if (-not $ipInfo) {
-                        try {
-                            $hostEntry = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME)
-                            $ipInfo = ($hostEntry.AddressList | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.ToString() -notlike '127.*' } | Select-Object -First 1).ToString()
-                        } catch {}
-                    }
-                    $osInfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
-                    $userName = if ($env:USERDOMAIN -and $env:USERNAME) { "{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME } else { $env:USERNAME }
-                    [pscustomobject]@{
-                        IP   = $ipInfo
-                        OS   = if ($osInfo) { "{0} {1}" -f $osInfo.Caption, $osInfo.Version } else { $null }
-                        User = $userName
-                    }
-                } -ErrorAction SilentlyContinue
-                if ($info) {
-                    if ($info.IP)   { $ip = $info.IP }
-                    if ($info.OS)   { $os = $info.OS }
-                    if ($info.User -and $RemotePcUserTxt) {
-                        Invoke-Ui { $RemotePcUserTxt.Text = $info.User }
-                    }
-                }
-            }
-        } catch {}
-    }
-
-    if ([string]::IsNullOrWhiteSpace($ip)) { $ip = "-" }
-    if ([string]::IsNullOrWhiteSpace($os)) { $os = "-" }
+    if ([string]::IsNullOrWhiteSpace($IP)) { $IP = "-" }
+    if ([string]::IsNullOrWhiteSpace($OS)) { $OS = "-" }
 
     Invoke-Ui {
         if ($RemotePcStatusDot) {
@@ -1097,14 +1001,18 @@ function Set-RemotePcStatus {
             $RemotePcStatusText.Foreground = $script:brushConv.ConvertFromString($(if ($Connected) { "#065F46" } else { "#991B1B" }))
         }
         if ($RemotePcDeviceTxt) { $RemotePcDeviceTxt.Text = $displayName }
-        if ($RemotePcIpTxt)     { $RemotePcIpTxt.Text = $ip }
-        if ($RemotePcOsTxt)     { $RemotePcOsTxt.Text = $os }
+        if ($RemotePcIpTxt)     { $RemotePcIpTxt.Text = $IP }
+        if ($RemotePcOsTxt)     { $RemotePcOsTxt.Text = $OS }
+        if ($RemotePcUserTxt -and -not [string]::IsNullOrWhiteSpace($User)) {
+            $RemotePcUserTxt.Text = $User
+        }
     }
 }
 
 # Function: Set-SessionInfo
 # Initializes the sidebar "Remote PC" card for the local session (current user,
-# local device info, Connected status) before the window is shown.
+# local device info, Connected status) before the window is shown. Lightweight:
+# IP/OS details are populated later when the app list is loaded.
 function Set-SessionInfo {
     if ($RemotePcUserTxt) {
         $RemotePcUserTxt.Text = if ($env:USERDOMAIN -and $env:USERNAME) {
@@ -1114,8 +1022,8 @@ function Set-SessionInfo {
 
     if ($RemotePcUserPill) { Set-Brush $RemotePcUserPill "#ECFDF5" }
 
-    # Device / IP / OS + status (connected to local machine by default)
-    Set-RemotePcStatus -Target $env:COMPUTERNAME -Connected $true
+    # Device + status (connected to local machine by default). No heavy queries.
+    Update-Sidebar -Target $env:COMPUTERNAME -Connected $true -IP "-" -OS "-"
 }
 #endregion
 Pump-UI
@@ -1172,32 +1080,63 @@ function Update-Output {
         default   { "#E6EEF7" }
     }
 
-    $needsSpacer = ($Message -like "====*" -or $Message -like "-----*" -or $Message -like "SUMMARY*")
+    # Visual structure: rules between sections, bold stage headers, indented DETAIL.
+    $isRule      = ($Message -like "====*")
+    $isAppHeader = ($Message -like "Attempting to remove*")
+    $isSummary   = ($lvl -eq 'SUMMARY')
+    $isDetail    = ($lvl -eq 'DETAIL')
 
     Invoke-Ui {
         try {
-            # A new RichTextBox starts with one empty paragraph; drop it so the
-            # very first log line is visible on line 1 instead of line 2.
-            if ($script:OutputBox.Document.Blocks.Count -eq 1) {
-                $firstText = $script:OutputBox.Document.Blocks.FirstBlock.Text
-                if ([string]::IsNullOrWhiteSpace($firstText)) {
-                    $script:OutputBox.Document.Blocks.Clear()
+            # Drop the initial empty paragraph once (check via ContentStart/ContentEnd).
+            if (-not $script:OutputCleaned) {
+                $script:OutputCleaned = $true
+                if ($script:OutputBox.Document.Blocks.Count -eq 1) {
+                    $firstBlock = $script:OutputBox.Document.Blocks.FirstBlock
+                    if ($firstBlock.ContentStart.CompareTo($firstBlock.ContentEnd) -eq 0) {
+                        $script:OutputBox.Document.Blocks.Clear()
+                    }
                 }
+            }
+
+            if ($isRule -or $isAppHeader -or $isSummary) {
+                $rule = New-Object System.Windows.Documents.Run(('─' * 34))
+                $rule.Foreground = $script:brushConv.ConvertFromString('#475569')
+                $rulePara = New-Object System.Windows.Documents.Paragraph
+                $rulePara.Margin = New-Object System.Windows.Thickness(0,8,0,2)
+                $rulePara.Inlines.Add($rule) | Out-Null
+                $script:OutputBox.Document.Blocks.Add($rulePara)
             }
 
             $run = New-Object System.Windows.Documents.Run($line)
             $run.Foreground = $script:brushConv.ConvertFromString($colorHex)
+            if ($isAppHeader) { $run.FontWeight = 'Bold'; $run.Foreground = $script:brushConv.ConvertFromString('#A78BFA') }
+            if ($isSummary)   { $run.FontWeight = 'Bold'; $run.FontSize = 13 }
+            if ($lvl -eq 'ERROR') { $run.FontWeight = 'SemiBold' }
 
             $para = New-Object System.Windows.Documents.Paragraph
-            $para.Margin = if ($needsSpacer) {
-                New-Object System.Windows.Thickness(0,6,0,6)
+            if ($isAppHeader) {
+                $para.Margin = New-Object System.Windows.Thickness(0,2,0,6)
+            } elseif ($isSummary) {
+                $para.Margin = New-Object System.Windows.Thickness(0,2,0,8)
+            } elseif ($isDetail) {
+                $para.Margin = New-Object System.Windows.Thickness(24,0,0,0)
             } else {
-                New-Object System.Windows.Thickness(0,0,0,0)
+                $para.Margin = New-Object System.Windows.Thickness(0,0,0,0)
             }
 
             $para.Inlines.Add($run) | Out-Null
             $script:OutputBox.Document.Blocks.Add($para)
             $script:OutputBox.ScrollToEnd()
+
+            # Keep long sessions responsive: prune to the newest ~3000 lines.
+            $blockCount = $script:OutputBox.Document.Blocks.Count
+            if ($blockCount -gt 3200) {
+                $remove = $blockCount - 3000
+                for ($k = 0; $k -lt $remove; $k++) {
+                    $script:OutputBox.Document.Blocks.Remove($script:OutputBox.Document.Blocks.FirstBlock)
+                }
+            }
         }
         catch {
             Write-Host $line
@@ -1373,7 +1312,14 @@ function Update-Details {
         if ([string]::IsNullOrWhiteSpace($cmd)) { return "-" }
         $c = $cmd.Trim()
         if ($c -match '(?i)\bmsiexec(\.exe)?\b') {
-            $c = [Regex]::Replace($c, '(?i)/i\s*(\{[0-9A-F\-]{36}\})', '/x$1')
+            $guid = $null
+            if ($c -match '(?i)\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}') { $guid = $matches[0] }
+            if ($guid) {
+                if ($c -notmatch '(?i)\s/quiet\b')     { $c += ' /quiet' }
+                if ($c -notmatch '(?i)\s/norestart\b') { $c += ' /norestart' }
+                return ("msiexec.exe /x {0} /quiet /norestart" -f $guid)
+            }
+            $c = [Regex]::Replace($c, '(?i)/i\s*(\{)', '/x $1')
             if ($c -notmatch '(?i)\s/quiet\b')     { $c += ' /quiet' }
             if ($c -notmatch '(?i)\s/norestart\b') { $c += ' /norestart' }
             return $c
@@ -1388,6 +1334,88 @@ function Update-Details {
         return $c
     }
 
+    # Function: Split-CmdLine
+    # Splits a command line into executable and arguments for Start-Process.
+    function Split-CmdLine([string]$cmd) {
+        if ([string]::IsNullOrWhiteSpace($cmd)) { return $null }
+        $exe = $null; $args = ''
+        if ($cmd -match '^\s*\"([^\"]+)\"(.*)$') {
+            $exe = $matches[1]; $args = $matches[2].Trim()
+        } elseif ($cmd -match '^\s*(.+?\.exe)\s+(.*)$') {
+            $exe = $matches[1]; $args = $matches[2]
+        } else {
+            $parts = $cmd -split '\s+', 2
+            $exe = $parts[0]
+            if ($parts.Count -gt 1) { $args = $parts[1] }
+        }
+        [pscustomobject]@{ Exe = $exe; Args = $args }
+    }
+
+    # Function: Get-PsUninstall
+    # Wraps the corrected uninstall command inside PowerShell Start-Process.
+    function Get-PsUninstall([string]$cmd) {
+        $fixed = Get-FixedUninstall $cmd
+        if ($fixed -eq "-") { return "-" }
+        $split = Split-CmdLine $fixed
+        if (-not $split -or [string]::IsNullOrWhiteSpace($split.Exe)) { return $fixed }
+        if ([string]::IsNullOrWhiteSpace($split.Args) -or $split.Args -eq "''") {
+            return ("Start-Process -FilePath '{0}' -Wait -NoNewWindow" -f $split.Exe)
+        }
+        return ("Start-Process -FilePath '{0}' -ArgumentList '{1}' -Wait -NoNewWindow" -f $split.Exe, $split.Args)
+    }
+
+    # Function: Format-InstallDate
+    # Converts YYYYMMDD to YYYY-MM-DD for readability. Returns original if not matching.
+    function Format-InstallDate([string]$d) {
+        if ($d -match '^(\d{4})(\d{2})(\d{2})$') { return "{0}-{1}-{2}" -f $matches[1], $matches[2], $matches[3] }
+        return $d
+    }
+
+    # Function: Format-FileSize
+    # Auto-scales KB to appropriate unit (KB/MB/GB).
+    function Format-FileSize($kb) {
+        if (-not $kb) { return $null }
+        try { $v = [double]$kb } catch { return [string]$kb }
+        if ($v -ge 1048576)    { return "{0:N1} GB" -f ($v / 1048576) }
+        elseif ($v -ge 1024)   { return "{0:N1} MB" -f ($v / 1024) }
+        else                   { return "{0:N0} KB" -f $v }
+    }
+
+    # Function: Get-LanguageName
+    # Maps Windows LCID to friendly language name.
+    function Get-LanguageName($lcid) {
+        $map = @{
+            "1033" = "English (US)"
+            "1025" = "Arabic"
+            "1036" = "French"
+            "1031" = "German"
+            "1041" = "Japanese"
+            "1040" = "Italian"
+            "1034" = "Spanish"
+            "1049" = "Russian"
+            "2052" = "Chinese (Simplified)"
+            "1028" = "Chinese (Traditional)"
+            "1042" = "Korean"
+            "1046" = "Portuguese (BR)"
+            "2070" = "Portuguese (PT)"
+            "1030" = "Danish"
+            "1053" = "Swedish"
+            "1044" = "Norwegian"
+            "1035" = "Finnish"
+            "1043" = "Dutch"
+            "1045" = "Polish"
+            "1029" = "Czech"
+            "1038" = "Hungarian"
+            "1055" = "Turkish"
+            "1032" = "Greek"
+            "1037" = "Hebrew"
+        }
+        if ($lcid -and $map.ContainsKey($lcid.ToString())) {
+            return $map[$lcid.ToString()]
+        }
+        return $lcid
+    }
+
     # Function: Get-AppDetailRows
     # Builds clean detail rows for a single app (hides empty fields).
     function Get-AppDetailRows {
@@ -1399,7 +1427,9 @@ function Update-Details {
             @{ Field = $NameFieldLabel;     Value = $obj.Name }
             @{ Field = "Publisher";         Value = $obj.Publisher }
             @{ Field = "Version";           Value = $obj.Version }
-            @{ Field = "Install Date";      Value = $obj.InstallDate }
+            @{ Field = "Install Date";      Value = (Format-InstallDate $obj.InstallDate) }
+            @{ Field = "Language";          Value = (Get-LanguageName $obj.LanguageCode) }
+            @{ Field = "Comments";          Value = $obj.Comments }
             @{ Field = "Installer Type";    Value = $obj.InstallerType }
             @{ Field = "Architecture";      Value = $obj.Architecture }
             @{ Field = "Scope";             Value = $obj.Scope }
@@ -1407,20 +1437,26 @@ function Update-Details {
             @{ Field = "Uninstall String";  Value = $obj.UninstallString }
         )
         if ($showFixed) {
-            $all += @{ Field = "Corrected Command"; Value = $fixedCmd }
+            $all += @{ Field = "CMD Command";     Value = $fixedCmd }
+        }
+        $psCmd = Get-PsUninstall $obj.UninstallString
+        if ($psCmd -ne "-") {
+            $all += @{ Field = "PowerShell Command"; Value = $psCmd }
         }
         $all += @(
             @{ Field = "Install Location";  Value = $obj.InstallLocation }
-            @{ Field = "Install Size (KB)"; Value = $obj.InstallSize }
+            @{ Field = "Install Size";      Value = (Format-FileSize $obj.InstallSize) }
+            @{ Field = "Estimated Size";    Value = (Format-FileSize $obj.EstimatedSize) }
             @{ Field = "Registry Key";      Value = (Format-RegistryPath $obj.RegistryKey) }
+            @{ Field = "Upgrade Code";      Value = $obj.UpgradeCode }
+            @{ Field = "Contact";           Value = $obj.Contact }
+            @{ Field = "Readme";            Value = $obj.Readme }
             @{ Field = "Info URL";          Value = $obj.URLInfoAbout }
             @{ Field = "Help Link";         Value = $obj.HelpLink }
             @{ Field = "Quiet Uninstall";   Value = $obj.QuietUninstallString }
             @{ Field = "Modify Path";       Value = $obj.ModifyPath }
             @{ Field = "Repair Path";       Value = $obj.RepairPath }
-            @{ Field = "Upgrade Code";      Value = $obj.UpgradeCode }
             @{ Field = "Install Source";    Value = $obj.InstallSource }
-            @{ Field = "Estimated Size (KB)"; Value = $obj.EstimatedSize }
             @{ Field = "Display Icon";      Value = $obj.DisplayIcon }
             @{ Field = "Release Type";      Value = $obj.ReleaseType }
             @{ Field = "Parent Display Name"; Value = $obj.ParentDisplayName }
@@ -1449,9 +1485,19 @@ function Update-Details {
             $rows += [pscustomobject]@{ Field = "Application"; Value = ([string]$item.Name) }
             $rows += [pscustomobject]@{ Field = "Version";     Value = Get-DisplayValue $item.Version }
             $rows += [pscustomobject]@{ Field = "Publisher";   Value = Get-DisplayValue $item.Publisher }
+            $rows += [pscustomobject]@{ Field = "Install Date";Value = Get-DisplayValue (Format-InstallDate $item.InstallDate) }
+            $rows += [pscustomobject]@{ Field = "Language";    Value = Get-DisplayValue (Get-LanguageName $item.LanguageCode) }
             $rows += [pscustomobject]@{ Field = "Type";        Value = Get-DisplayValue $item.InstallerType }
             $rows += [pscustomobject]@{ Field = "Architecture";Value = Get-DisplayValue $item.Architecture }
             $rows += [pscustomobject]@{ Field = "Product Code";Value = Get-DisplayValue $item.ProductCode }
+            $fixed = Get-FixedUninstall $item.UninstallString
+            if ($fixed -ne "-" -and $fixed -ne $item.UninstallString) {
+                $rows += [pscustomobject]@{ Field = "CMD Command"; Value = $fixed }
+            }
+            $psCmd = Get-PsUninstall $item.UninstallString
+            if ($psCmd -ne "-") {
+                $rows += [pscustomobject]@{ Field = "PS Command"; Value = $psCmd }
+            }
             $rows += $sep
         }
         return $rows
@@ -1595,6 +1641,10 @@ $GetRegistryAppsSb = {
                 ParentKeyName   = $_.GetValue("ParentKeyName")
                 SystemComponent = $_.GetValue("SystemComponent")
                 WindowsInstaller = $_.GetValue("WindowsInstaller")
+                Comments        = $_.GetValue("Comments")
+                Contact         = $_.GetValue("Contact")
+                Readme          = $_.GetValue("Readme")
+                LanguageCode    = $_.GetValue("Language")
                 InstallerType   = $installerType
                 Architecture    = $arch
                 Scope           = "Machine"
@@ -1605,13 +1655,55 @@ $GetRegistryAppsSb = {
     $list | Sort-Object Name
 }
 
-# Function: Get-InstalledApps
-# Returns the list of installed applications for a target. Local targets read
-# both HKLM Uninstall views directly; remote targets first do a ping check,
-# then an Invoke-Command over WinRM. Every path updates the Remote PC card
-# (Connected/Offline) and returns an array (empty on failure).
-function Get-InstalledApps {
-    param([string]$ComputerName)
+#endregion
+Pump-UI
+
+#region ========================= BACKGROUND INVENTORY LOAD ===================
+# Runs in a background job so the UI never freezes while scanning the registry.
+# Emits log lines via Write-Output and finishes with a single result object:
+# [pscustomobject]@{ Apps = @(...); SessionInfo = [pscustomobject]@{...} }
+$InventoryScriptBlock = {
+    param(
+        [string]$ComputerName,
+        $RegistrySb,
+        [string]$LogPath
+    )
+
+    # Start-Job serializes scriptblock arguments to a string (braces removed);
+    # restore it to a runnable scriptblock so the inventory still works.
+    if ($RegistrySb -is [string]) { $RegistrySb = [scriptblock]::Create($RegistrySb) }
+
+    function Write-Log {
+        param(
+            [string]$Message,
+            [ValidateSet('INFO','WARN','ERROR','DETAIL','RESULT','SUMMARY')]
+            [string]$Level = 'INFO'
+        )
+        $line = ("[{0}] {1}" -f $Level, $Message)
+        Write-Output $line
+        if ($LogPath) { try { [System.IO.File]::AppendAllText($LogPath, $line + [Environment]::NewLine) } catch {} }
+    }
+
+    function Is-LocalTarget {
+        param([string]$Name)
+        if ([string]::IsNullOrWhiteSpace($Name)) { return $true }
+        $n = $Name.Trim().ToUpper()
+        return ($n -in @('.', 'LOCALHOST', $env:COMPUTERNAME.ToUpper()))
+    }
+
+    function Get-PrimaryIpLocal {
+        try {
+            $ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+                Select-Object -First 1).IPAddress
+            if ($ip) { return $ip }
+        } catch {}
+        try {
+            $hostEntry = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME)
+            return ($hostEntry.AddressList | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.ToString() -notlike '127.*' } | Select-Object -First 1).ToString()
+        } catch {}
+        return $null
+    }
 
     if ([string]::IsNullOrWhiteSpace($ComputerName)) { $ComputerName = $env:COMPUTERNAME }
     $isLocal = Is-LocalTarget -Name $ComputerName
@@ -1621,39 +1713,225 @@ function Get-InstalledApps {
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
     )
 
+    $sessionInfo = [pscustomobject]@{
+        Connected = $false
+        Device    = $ComputerName
+        IP        = "-"
+        OS        = "-"
+        User      = ""
+    }
+
+    $list = @()
+
     if ($isLocal) {
-        Update-Output ("Loading apps from local machine ({0})..." -f $ComputerName) "INFO"
-        $apps = Add-AppIndex -List (& $GetRegistryAppsSb -Keys $Keys)
-        Set-RemotePcStatus -Target $ComputerName -Connected $true
-        Update-Output ("Retrieved {0} app(s) from local machine." -f $apps.Count) "RESULT"
-        return $apps
+        Write-Log ("Loading apps from local machine ({0})..." -f $ComputerName) 'INFO'
+        $list = @(& $RegistrySb -Keys $Keys)
+        $sessionInfo.Connected = $true
+        try {
+            $osInfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+            if ($osInfo) { $sessionInfo.OS = "{0} {1}" -f $osInfo.Caption, $osInfo.Version }
+        } catch {}
+        $ip = Get-PrimaryIpLocal
+        if ($ip) { $sessionInfo.IP = $ip }
+        $sessionInfo.User = if ($env:USERDOMAIN -and $env:USERNAME) { "{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME } else { $env:USERNAME }
+    } else {
+        Write-Log ("Checking connectivity to '{0}'..." -f $ComputerName) 'DETAIL'
+        $reachable = $false
+        try { $reachable = Test-Connection -ComputerName $ComputerName -Count 1 -Quiet -ErrorAction Stop } catch {}
+
+        if (-not $reachable) {
+            Write-Log ("Failed to reach {0}." -f $ComputerName) 'ERROR'
+        } else {
+            Write-Log ("Connected. Fetching registry-based apps from {0}..." -f $ComputerName) 'INFO'
+            try {
+                $list = @(Invoke-Command -ComputerName $ComputerName -ScriptBlock $RegistrySb -ArgumentList (,$Keys) -ErrorAction Stop)
+                $sessionInfo.Connected = $true
+
+                try {
+                    $info = Invoke-Command -ComputerName $ComputerName -ScriptBlock {
+                        $ipInfo = $null
+                        try {
+                            $ipInfo = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                                Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+                                Select-Object -First 1).IPAddress
+                        } catch {}
+                        if (-not $ipInfo) {
+                            try {
+                                $hostEntry = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME)
+                                $ipInfo = ($hostEntry.AddressList | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.ToString() -notlike '127.*' } | Select-Object -First 1).ToString()
+                            } catch {}
+                        }
+                        $osInfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+                        $userName = if ($env:USERDOMAIN -and $env:USERNAME) { "{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME } else { $env:USERNAME }
+                        [pscustomobject]@{
+                            IP   = $ipInfo
+                            OS   = if ($osInfo) { "{0} {1}" -f $osInfo.Caption, $osInfo.Version } else { $null }
+                            User = $userName
+                        }
+                    } -ErrorAction SilentlyContinue
+                    if ($info) {
+                        if ($info.IP)   { $sessionInfo.IP = $info.IP }
+                        if ($info.OS)   { $sessionInfo.OS = $info.OS }
+                        if ($info.User) { $sessionInfo.User = $info.User }
+                    }
+                } catch {}
+            } catch {
+                Write-Log ("Failed to query apps on {0}: {1}" -f $ComputerName, $_.Exception.Message) 'ERROR'
+            }
+        }
     }
 
-    # Remote
-    Update-Output ("Checking connectivity to '{0}'..." -f $ComputerName) "DETAIL"
-    if (-not (Test-TargetReachable -ComputerName $ComputerName)) {
-        Update-Output ("Failed to reach {0}." -f $ComputerName) "ERROR"
-        Set-RemotePcStatus -Target $ComputerName -Connected $false
-        return @()
+    # 1-based index for the list numbering
+    $i = 1
+    foreach ($item in ($list | Where-Object { $_ })) {
+        try { $item.PSObject.Properties.Remove('Index') | Out-Null } catch {}
+        Add-Member -InputObject $item -NotePropertyName Index -NotePropertyValue $i -Force
+        $i++
     }
 
-    Update-Output ("Connected. Fetching registry-based apps from {0}..." -f $ComputerName) "INFO"
-
-    try {
-        $apps = Invoke-Command -ComputerName $ComputerName -ScriptBlock $GetRegistryAppsSb -ArgumentList (,$Keys) -ErrorAction Stop
-    } catch {
-        Update-Output ("Failed to query apps on {0}: {1}" -f $ComputerName, $_.Exception.Message) "ERROR"
-        Set-RemotePcStatus -Target $ComputerName -Connected $false
-        return @()
+    Write-Log ("Retrieved {0} app(s) from {1}." -f $list.Count, $ComputerName) 'RESULT'
+    [pscustomobject]@{
+        Apps        = @($list)
+        SessionInfo = $sessionInfo
     }
-
-    if (-not $apps) { $apps = @() }
-    $apps = Add-AppIndex -List $apps
-
-    Set-RemotePcStatus -Target $ComputerName -Connected $true
-    Update-Output ("Retrieved {0} app(s) from {1}." -f $apps.Count, $ComputerName) "RESULT"
-    return $apps
 }
+
+# Function: Start-LoadApps
+# Kicks off a background inventory load for the given target. The UI stays
+# responsive; an indeterminate progress overlay is shown until it completes.
+function Start-LoadApps {
+    param(
+        [string]$ComputerName,
+        [string]$ActionLabel = "Load"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) { $ComputerName = $env:COMPUTERNAME }
+
+    if ($Global:LoadJob) {
+        Update-Output "A load is already in progress. Please wait..." "WARN"
+        return
+    }
+
+    $Global:LoadActionLabel = $ActionLabel
+    Update-Output ("{0}: starting background inventory for '{1}'..." -f $ActionLabel, $ComputerName) "INFO"
+    Set-LastAction ("{0}ing apps from {1}..." -f $ActionLabel, $ComputerName)
+
+    Invoke-Ui {
+        if ($LoadingOverlay)   { $LoadingOverlay.Visibility = 'Visible' }
+        if ($LoadingText)      { $LoadingText.Text = "{0}ing apps... Please wait." -f $ActionLabel }
+        if ($LoadAppsButton)   { $LoadAppsButton.IsEnabled = $false }
+        if ($LoadLocalButton)  { $LoadLocalButton.IsEnabled = $false }
+        if ($RefreshButton)    { $RefreshButton.IsEnabled = $false }
+        if ($UninstallButton)  { $UninstallButton.IsEnabled = $false }
+    }
+
+    $Global:LoadLinesSeen = 0
+    $Global:LoadLogPath = Join-Path $script:LogDir ("load-{0}.log" -f (Get-Date -Format "yyyyMMddHHmmss"))
+    try { [System.IO.File]::WriteAllText($Global:LoadLogPath, "") } catch { $Global:LoadLogPath = $null }
+
+    $Global:LoadJob = Start-Job -ScriptBlock $InventoryScriptBlock -ArgumentList $ComputerName, $GetRegistryAppsSb, $Global:LoadLogPath
+    $LoadTimer.Start()
+}
+
+# Polling timer for the background inventory load
+$LoadTimer = New-Object System.Windows.Threading.DispatcherTimer
+$LoadTimer.Interval = [TimeSpan]::FromMilliseconds(300)
+$LoadTimer.Add_Tick({
+    if (-not $Global:LoadJob) { return }
+
+    # Read new lines from the job's live log file (works on PS 5.1 too).
+    $lines = @()
+    if ($Global:LoadLogPath -and (Test-Path $Global:LoadLogPath)) {
+        try {
+            $fs = [System.IO.File]::Open($Global:LoadLogPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try {
+                $sr = New-Object System.IO.StreamReader($fs)
+                $raw = $sr.ReadToEnd()
+                $sr.Dispose()
+            } finally { $fs.Dispose() }
+            if ($raw) {
+                $lines = @($raw -split "\r?\n")
+                if (-not $raw.EndsWith("`n")) { $lines = $lines[0..($lines.Count - 2)] }
+            }
+        } catch { $lines = @() }
+    }
+
+    if ($lines.Count -gt $Global:LoadLinesSeen) {
+        $start = $Global:LoadLinesSeen
+        for ($i = $start; $i -lt $lines.Count; $i++) {
+            $l = $lines[$i]
+            if ([string]::IsNullOrWhiteSpace($l)) { continue }
+            Update-Output $l
+        }
+        $Global:LoadLinesSeen = $lines.Count
+    }
+
+    if ($Global:LoadJob.State -in @('Completed','Failed','Stopped')) {
+        $LoadTimer.Stop()
+        $job = $Global:LoadJob
+        $Global:LoadJob = $null
+        $label = $Global:LoadActionLabel
+
+        # Flush any lines written right before completion.
+        $lines = @()
+        if ($Global:LoadLogPath -and (Test-Path $Global:LoadLogPath)) {
+            try {
+                $fs = [System.IO.File]::Open($Global:LoadLogPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                try {
+                    $sr = New-Object System.IO.StreamReader($fs)
+                    $raw = $sr.ReadToEnd()
+                    $sr.Dispose()
+                } finally { $fs.Dispose() }
+                if ($raw) { $lines = @($raw -split "\r?\n") }
+            } catch { $lines = @() }
+        }
+        if ($lines.Count -gt $Global:LoadLinesSeen) {
+            for ($i = $Global:LoadLinesSeen; $i -lt $lines.Count; $i++) {
+                $l = $lines[$i]
+                if ([string]::IsNullOrWhiteSpace($l)) { continue }
+                Update-Output $l
+            }
+            $Global:LoadLinesSeen = $lines.Count
+        }
+        try { if ($Global:LoadLogPath -and (Test-Path $Global:LoadLogPath)) { Remove-Item -LiteralPath $Global:LoadLogPath -Force -ErrorAction SilentlyContinue } } catch {}
+        $Global:LoadLogPath = $null
+
+        Invoke-Ui {
+            if ($LoadingOverlay)   { $LoadingOverlay.Visibility = 'Collapsed' }
+            if ($LoadAppsButton)   { $LoadAppsButton.IsEnabled = $true }
+            if ($LoadLocalButton)  { $LoadLocalButton.IsEnabled = $true }
+            if ($RefreshButton)    { $RefreshButton.IsEnabled = $true }
+            if ($UninstallButton)  { $UninstallButton.IsEnabled = $true }
+        }
+
+        # The inventory job's ONLY non-string output is the result object.
+        $result = $null
+        foreach ($item in @(Receive-Job -Job $job -ErrorAction SilentlyContinue)) {
+            if ($item -is [System.Management.Automation.PSCustomObject] -and
+                $item.PSObject.Properties.Name -contains 'Apps' -and
+                $item.PSObject.Properties.Name -contains 'SessionInfo') {
+                $result = $item
+            }
+        }
+
+        if ($result) {
+            $apps = @($result.Apps)
+            Set-AppList -Apps $apps
+
+            $si = $result.SessionInfo
+            if ($SessionLoadedFromValue) { $SessionLoadedFromValue.Text = $si.Device }
+            Update-Sidebar -Target $si.Device -Connected $si.Connected -IP $si.IP -OS $si.OS -User $si.User
+
+            Set-LastAction ("{0}ed {1} app(s)." -f $label, $apps.Count)
+            Update-Output ("{0} complete. Apps={1}" -f $label, $apps.Count) "RESULT"
+        } else {
+            Set-LastAction "{0} failed."
+            Update-Output ("{0} failed: the background job returned no data." -f $label) "ERROR"
+        }
+
+        if ($job) { try { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue } catch {} }
+    }
+})
 #endregion
 Pump-UI
 
@@ -1695,11 +1973,28 @@ function Show-UninstallConfirmation {
             <Setter Property="Padding" Value="16,8"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="6,0,0,0"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="0.9"/>
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="5">
+                            <Grid>
+                                <Border x:Name="HoverOverlay" Background="Transparent" CornerRadius="5"/>
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="HoverOverlay" Property="Background" Value="#16000000"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="HoverOverlay" Property="Background" Value="#2B000000"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="DlgBtnPrimary" TargetType="Button" BasedOn="{StaticResource DlgBtn}">
             <Setter Property="Background" Value="#4338CA"/>
@@ -1773,7 +2068,8 @@ Pump-UI
 $UninstallScriptBlock = {
     param(
         [string]$ComputerName,
-        [object[]]$AppList
+        [object[]]$AppList,
+        [string]$LogPath
     )
 
     if ([string]::IsNullOrWhiteSpace($ComputerName)) { $ComputerName = $env:COMPUTERNAME }
@@ -1786,7 +2082,9 @@ $UninstallScriptBlock = {
             [ValidateSet('INFO','WARN','ERROR','DETAIL','RESULT','SUMMARY')]
             [string]$Level = 'INFO'
         )
-        Write-Output ("[{0}] {1}" -f $Level, $Message)
+        $line = ("[{0}] {1}" -f $Level, $Message)
+        Write-Output $line
+        if ($LogPath) { try { [System.IO.File]::AppendAllText($LogPath, $line + [Environment]::NewLine) } catch {} }
     }
 
     # Function: Test-IsLocalComputer
@@ -1806,10 +2104,10 @@ $UninstallScriptBlock = {
 
         if ($c -match '(?i)\bmsiexec(\.exe)?\b') {
             $guid = $null
-            if ($c -match '(?i)\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}') { $guid = $matches[0] }
+            if ($c -match '(?i)\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}') { $guid = $matches[0] }
             if ($guid) { return ("msiexec.exe /x {0} /quiet /norestart" -f $guid) }
 
-            $c = [Regex]::Replace($c, '(?i)/i\s*(\{[0-9A-F\-]{36}\})', '/x$1')
+            $c = [Regex]::Replace($c, '(?i)/i\s*(\{)', '/x $1')
             if ($c -notmatch '(?i)\s/quiet\b')     { $c += ' /quiet' }
             if ($c -notmatch '(?i)\s/norestart\b') { $c += ' /norestart' }
             return $c
@@ -1860,31 +2158,32 @@ $UninstallScriptBlock = {
     }
 
     # Function: Test-AppStillInstalled
-    # Checks the HKLM Uninstall views (local or via WinRM) to see whether an
-    # app whose DisplayName matches <Name> still exists. If verification cannot
-    # run (unreachable / WinRM error) it returns $true to avoid a false success.
+    # Checks HKLM Uninstall views (local or WinRM) for a matching DisplayName.
+    # Returns $true if it cannot verify, to avoid a false success.
     function Test-AppStillInstalled {
         param([string]$Target,[string]$Name)
 
         $rx = Escape-Regex $Name
         $sb = {
             param($rx)
+            $found = $false
             $RegPaths = @(
                 "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
                 "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
             )
             foreach ($r in $RegPaths) {
-                Get-ChildItem -Path $r -ErrorAction SilentlyContinue | ForEach-Object {
-                    $dn = $_.GetValue("DisplayName")
-                    if ($dn -and ($dn -match $rx)) { return $true }
+                foreach ($key in (Get-ChildItem -Path $r -ErrorAction SilentlyContinue)) {
+                    $dn = $key.GetValue("DisplayName")
+                    if ($dn -and ($dn -match $rx)) { $found = $true; break }
                 }
+                if ($found) { break }
             }
-            return $false
+            return $found
         }
 
         $result = Invoke-TargetCommand -Target $Target -ScriptBlock $sb -Arguments @($rx)
         if ($null -eq $result) { return $true }
-        return $result
+        return ([bool]$result)
     }
 
     # Function: Remove-RegistryLeftovers
@@ -2060,7 +2359,6 @@ $UninstallScriptBlock = {
         $isLocal = Test-IsLocalComputer $Target
         $rx = Escape-Regex $appName
 
-        Write-Log "-----" "INFO"
         Write-Log ("Attempting to remove '{0}' on {1}..." -f $appName, $Target) "INFO"
 
         if (-not $isLocal) {
@@ -2081,15 +2379,28 @@ $UninstallScriptBlock = {
                     if (-not $match -and $desc) { $match = $desc -match $rx }
                     if ($match) { Stop-Process -InputObject $_ -Force -ErrorAction SilentlyContinue | Out-Null }
                 }
+                Get-Service -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match $rx -or $_.DisplayName -match $rx } |
+                    ForEach-Object { Stop-Service -InputObject $_ -Force -ErrorAction SilentlyContinue }
             }
             if ($isLocal) {
                 & $stopProcSb $rx
             } else {
-                Invoke-Command -ComputerName $Target -ScriptBlock $stopProcSb -ArgumentList $rx -ErrorAction SilentlyContinue | Out-Null
+                # Remote stop runs as a job with a 45s cap (Invoke-Command can hang on slow hosts).
+                $pJob = Invoke-Command -ComputerName $Target -ScriptBlock $stopProcSb -ArgumentList $rx -AsJob -ErrorAction SilentlyContinue
+                if ($pJob) {
+                    if (Wait-Job -Job $pJob -Timeout 45 -ErrorAction SilentlyContinue) {
+                        Receive-Job -Job $pJob -ErrorAction SilentlyContinue | Out-Null
+                    } else {
+                        Write-Log ("Process-stop on {0} took too long (>45s); continuing anyway." -f $Target) "WARN"
+                    }
+                    Remove-Job -Job $pJob -Force -ErrorAction SilentlyContinue
+                }
             }
         } catch {}
 
         $details = New-Object System.Collections.Generic.List[string]
+        $uTimedOut = $false
 
         # Uninstall
         if ([string]::IsNullOrWhiteSpace($uninstall)) {
@@ -2119,11 +2430,51 @@ $UninstallScriptBlock = {
                             $details.Add("Missing EXE: $exePath") | Out-Null
                         }
                     } else {
-                        Invoke-Command -ComputerName $Target -ScriptBlock {
+                        Write-Log ("Waiting for the uninstaller to complete on {0} (polling until removal is confirmed, up to 4 min)..." -f $Target) "DETAIL"
+                        $uJob = Invoke-Command -ComputerName $Target -ScriptBlock {
                             param($p,$a)
-                            if (Test-Path $p) { Start-Process -FilePath $p -ArgumentList $a -Wait -WindowStyle Hidden | Out-Null }
-                            else { Write-Output ("[ERROR] Executable not found: " + $p) }
-                        } -ArgumentList $exePath,$exeArgs -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
+                            $elev = [bool](([System.Security.Principal.WindowsPrincipal][System.Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator))
+                            Write-Output ("ELEVATED:{0}" -f $elev)
+                            if (-not (Test-Path $p)) { Write-Output ("EXE_NOT_FOUND:" + $p); return }
+                            $proc = Start-Process -FilePath $p -ArgumentList $a -Wait -WindowStyle Hidden -PassThru
+                            Write-Output ("EXITCODE:{0}" -f $proc.ExitCode)
+                        } -ArgumentList $exePath,$exeArgs -AsJob -ErrorAction SilentlyContinue
+                        if ($uJob) {
+                            # Treat "gone from remote registry" as success even if the uninstaller process lingers.
+                            $deadline = (Get-Date).AddSeconds(240)
+                            $removedNow = $false
+                            while ((Get-Date) -lt $deadline -and -not $removedNow) {
+                                $removedNow = -not (Test-AppStillInstalled -Target $Target -Name $appName)
+                                if ($removedNow) { break }
+                                if ($uJob.State -notin @('Running','NotStarted')) { break }
+                                Start-Sleep -Seconds 15
+                            }
+                            if ($removedNow) {
+                                Write-Log ("Removal of '{0}' confirmed on {1}." -f $appName, $Target) "DETAIL"
+                            } else {
+                                $uTimedOut = $true
+                                Write-Log ("Uninstaller on {0} did not confirm removal within 4 min; it may still be finishing remotely. Continuing." -f $Target) "WARN"
+                            }
+                            $uOut = @(Receive-Job -Job $uJob -ErrorAction SilentlyContinue)
+                            foreach ($o in $uOut) {
+                                if ($o -is [string] -and $o -like 'ELEVATED:*') {
+                                    if ($o.Substring(9).Trim() -eq 'False') {
+                                        Write-Log ("Remote session on {0} is NOT elevated; uninstall may fail for apps under Program Files." -f $Target) "WARN"
+                                    }
+                                } elseif ($o -is [string] -and $o -like 'EXE_NOT_FOUND:*') {
+                                    Write-Log ("Executable not found: {0}" -f $o.Substring(13)) "ERROR"
+                                } elseif ($o -is [string] -and $o -like 'EXITCODE:*') {
+                                    $code = $o.Substring(9).Trim()
+                                    if ($code -eq '0') { Write-Log ("Uninstaller on {0} exited with code 0." -f $Target) "DETAIL" }
+                                    else { Write-Log ("Uninstaller on {0} exited with code {1} (check its log for details)." -f $Target, $code) "WARN" }
+                                } else {
+                                    Write-Output $o
+                                }
+                            }
+                            Remove-Job -Job $uJob -Force -ErrorAction SilentlyContinue
+                        } else {
+                            Write-Log ("Could not start remote uninstaller on {0}." -f $Target) "ERROR"
+                        }
                     }
                 } catch {
                     Write-Log ("Uninstall execution failed: {0}" -f $_.Exception.Message) "ERROR"
@@ -2154,7 +2505,7 @@ $UninstallScriptBlock = {
             Write-Log ("'{0}' removed via uninstall." -f $appName) "RESULT"
         }
 
-        # Cleanup (only do cleanup when uninstall succeeded OR still installed but user wants force cleanup? Here we do best-effort always.)
+        # Cleanup (best-effort, always attempted)
         Write-Log ("Cleanup: registry/files/shortcuts/appdata for '{0}'..." -f $appName) "DETAIL"
 
         $regRemoved = Remove-RegistryLeftovers -Target $Target -AppName $appName
@@ -2177,12 +2528,25 @@ $UninstallScriptBlock = {
 
     # Batch loop
     $Results = New-Object System.Collections.ArrayList
+    $doneCount = 0
     Write-Log ("Job started. Target={0} Apps={1}" -f $ComputerName, ($AppList.Count)) "SUMMARY"
     Write-Log ("===== Starting batch uninstall on {0} for {1} app(s)... =====" -f $ComputerName, ($AppList.Count)) "INFO"
 
     foreach ($app in $AppList) {
+        $doneCount++
         try {
-            $res = Remove-Application -Target $ComputerName -AppObject $app
+            # Forward Remove-Application's log lines to the job output; capture only the status object.
+            $res = $null
+            Remove-Application -Target $ComputerName -AppObject $app | ForEach-Object {
+                if ($_ -is [System.Management.Automation.PSCustomObject] -and
+                    $_.PSObject.Properties.Name -contains 'Status') {
+                    $res = $_
+                } else {
+                    Write-Output $_
+                }
+            }
+            if ($null -eq $res) { throw "Remove-Application did not return a status object." }
+
             $Results.Add([pscustomobject]@{
                 App     = $app.Name
                 Status  = $res.Status
@@ -2201,234 +2565,339 @@ $UninstallScriptBlock = {
             }) | Out-Null
             Write-Log ("RESULT: {0} -> Failed {1}" -f $app.Name, $_.Exception.Message) "ERROR"
         }
+
+        # Emit an explicit progress line the UI uses to move the progress bar
+        Write-Log ("[PROGRESS] {0}/{1}" -f $doneCount, $AppList.Count) "DETAIL"
     }
 
     $successCount = ($Results | Where-Object { $_.Status -eq 'Success' }).Count
     $failCount    = ($Results | Where-Object { $_.Status -ne 'Success' }).Count
 
-    Write-Log ("SUMMARY: Completed on {0} | Success: {1} | Failed: {2}" -f $ComputerName, $successCount, $failCount) "SUMMARY"
+    $okNames  = @(($Results | Where-Object { $_.Status -eq 'Success' } | ForEach-Object { $_.App }))
+    $badNames = @(($Results | Where-Object { $_.Status -ne 'Success' } | ForEach-Object { $_.App }))
+
+    $summaryText = "SUMMARY: Completed on {0} | Uninstalled: {1}" -f $ComputerName, $successCount
+    if ($okNames.Count -gt 0)  { $summaryText += " ({0})" -f ($okNames -join ', ') }
+    $summaryText += " | Failed: {0}" -f $failCount
+    if ($badNames.Count -gt 0) { $summaryText += " ({0})" -f ($badNames -join ', ') }
+    Write-Log $summaryText "SUMMARY"
     Write-Log ("===== Uninstallation completed for {0} app(s) on {1}. =====" -f ($AppList.Count), $ComputerName) "INFO"
 }
 #endregion
 Pump-UI
 
 #region ========================= JOB POLLING (DispatcherTimer) ===============
-$PollTimer = New-Object System.Windows.Threading.DispatcherTimer
-$PollTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+# Job rows are built dynamically so multiple uninstall jobs can run at once.
+# Function: New-JobRow
+# Builds the small per-job progress row (label, progress bar, count, Stop button).
+function New-JobRow {
+    param($State)
+    if (-not $JobsPanel) { return }
 
-# Function: Show-UninstallSummaryDialog
-# Displays the modal "Uninstall Summary" dialog (title, subtitle, line list)
-# used by the job poller when the uninstall job finishes.
-function Show-UninstallSummaryDialog {
-    param(
-        [string]$Title,
-        [string]$Subtitle,
-        [string[]]$Lines
-    )
+    $grid = New-Object System.Windows.Controls.Grid
+    $grid.Margin = New-Object System.Windows.Thickness(0,6,0,0)
 
-    $summaryXaml = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Uninstall Summary"
-        Width="580" Height="420"
-        WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
-        Background="#F1F5F9"
-        FontFamily="Segoe UI">
-    <Grid Margin="16">
-        <Border Background="White" CornerRadius="8" Padding="20">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+    $cLabel = New-Object System.Windows.Controls.ColumnDefinition; $cLabel.Width = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Auto)
+    $cBar   = New-Object System.Windows.Controls.ColumnDefinition; $cBar.Width   = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Star)
+    $cText  = New-Object System.Windows.Controls.ColumnDefinition; $cText.Width  = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Auto)
+    $cStop  = New-Object System.Windows.Controls.ColumnDefinition; $cStop.Width  = [System.Windows.GridLength]::new(1,[System.Windows.GridUnitType]::Auto)
+    $grid.ColumnDefinitions.Add($cLabel) | Out-Null
+    $grid.ColumnDefinitions.Add($cBar)   | Out-Null
+    $grid.ColumnDefinitions.Add($cText)  | Out-Null
+    $grid.ColumnDefinitions.Add($cStop)  | Out-Null
 
-                <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,6">
-                    <Border x:Name="SummaryIcon" Width="40" Height="40" CornerRadius="8" VerticalAlignment="Center">
-                        <TextBlock x:Name="SummaryIconTxt" Text="&#x2713;" FontSize="20" FontWeight="Bold"
-                                   Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <StackPanel Margin="12,0,0,0">
-                        <TextBlock x:Name="SummaryTitle" FontWeight="Bold" FontSize="17" Foreground="#0F172A"/>
-                        <TextBlock x:Name="SummarySubtitle" FontSize="12" Foreground="#64748B"/>
-                    </StackPanel>
-                </StackPanel>
+    $label = New-Object System.Windows.Controls.TextBlock
+    $label.Text = "Job #{0} - {1}" -f $State.Id, $State.Target
+    $label.FontSize = 11
+    $label.FontWeight = 'SemiBold'
+    $label.Foreground = $script:brushConv.ConvertFromString('#475569')
+    $label.VerticalAlignment = 'Center'
+    $label.Margin = New-Object System.Windows.Thickness(0,0,10,0)
+    [System.Windows.Controls.Grid]::SetColumn($label, 0)
+    $grid.AddChild($label) | Out-Null
 
-                <StackPanel x:Name="SummaryStats" Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,12">
-                    <Border Background="#ECFDF5" Padding="10,4" CornerRadius="6" Margin="0,0,8,0">
-                        <TextBlock x:Name="SuccessCount" Text="0 succeeded" FontSize="11.5" FontWeight="SemiBold" Foreground="#065F46"/>
-                    </Border>
-                    <Border Background="#FEF2F2" Padding="10,4" CornerRadius="6">
-                        <TextBlock x:Name="FailCount" Text="0 failed" FontSize="11.5" FontWeight="SemiBold" Foreground="#991B1B"/>
-                    </Border>
-                </StackPanel>
+    $bar = New-Object System.Windows.Controls.ProgressBar
+    $bar.Height = 5
+    $bar.Minimum = 0
+    $bar.Maximum = [math]::Max(1, $State.Total)
+    $bar.Value = 0
+    $bar.Foreground = $script:brushConv.ConvertFromString('#4F46E5')
+    $bar.Background = $script:brushConv.ConvertFromString('#E2E8F0')
+    $bar.BorderThickness = New-Object System.Windows.Thickness(0)
+    $bar.VerticalAlignment = 'Center'
+    [System.Windows.Controls.Grid]::SetColumn($bar, 1)
+    $grid.AddChild($bar) | Out-Null
 
-                <Border Grid.Row="2" Background="#F8FAFC" CornerRadius="6" BorderBrush="#E2E8F0" BorderThickness="1" Padding="12">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="SummaryBody" />
-                    </ScrollViewer>
-                </Border>
+    $txt = New-Object System.Windows.Controls.TextBlock
+    $txt.Text = "0/$($State.Total)"
+    $txt.FontSize = 11
+    $txt.Foreground = $script:brushConv.ConvertFromString('#64748B')
+    $txt.VerticalAlignment = 'Center'
+    $txt.Margin = New-Object System.Windows.Thickness(8,0,8,0)
+    [System.Windows.Controls.Grid]::SetColumn($txt, 2)
+    $grid.AddChild($txt) | Out-Null
 
-                <Button x:Name="CloseBtn" Grid.Row="3" Content="Close" Width="90" Height="34"
-                        Background="#4338CA" Foreground="#FFFFFF" FontWeight="SemiBold"
-                        BorderThickness="0" Cursor="Hand" FontSize="12"
-                        HorizontalAlignment="Right" Margin="0,14,0,0"/>
-            </Grid>
-        </Border>
-    </Grid>
-</Window>
-"@
-
-    $reader = New-Object System.Xml.XmlNodeReader ([xml]$summaryXaml)
-    $dlg = [Windows.Markup.XamlReader]::Load($reader)
-
-    ($dlg.FindName('SummaryTitle')).Text = $Title
-    ($dlg.FindName('SummarySubtitle')).Text = $Subtitle
-
-    # Count results
-    $succ = 0; $fail = 0
-    $bodyPanel = $dlg.FindName('SummaryBody')
-    if ($Lines -and $Lines.Count -gt 0) {
-        foreach ($ln in $Lines) {
-            if ($ln -like "*Success*" -or $ln -like "*Removed*") { $succ++ }
-            elseif ($ln -like "*Failed*") { $fail++ }
-
-            $row = New-Object System.Windows.Controls.StackPanel
-            $row.Orientation = 'Horizontal'
-            $row.Margin = '0,2,0,2'
-
-            $icon = New-Object System.Windows.Controls.TextBlock
-            $icon.Width = 18
-            $icon.FontSize = 12
-            if ($ln -like "*Success*" -or $ln -like "*Removed*") {
-                $icon.Text = '+'; $icon.Foreground = $script:brushConv.ConvertFromString("#10B981"); $icon.FontWeight = 'Bold'
-            } elseif ($ln -like "*Failed*") {
-                $icon.Text = '!'; $icon.Foreground = $script:brushConv.ConvertFromString("#EF4444"); $icon.FontWeight = 'Bold'
+    $stop = New-Object System.Windows.Controls.Button
+    $stop.Content = "Stop"
+    $stop.FontSize = 10
+    $stop.FontWeight = 'SemiBold'
+    $stop.Padding = New-Object System.Windows.Thickness(10,3,10,3)
+    $stop.Cursor = [System.Windows.Input.Cursors]::Hand
+    $stop.Background = $script:brushConv.ConvertFromString('#DC2626')
+    $stop.Foreground = [System.Windows.Media.Brushes]::White
+    $stop.BorderThickness = New-Object System.Windows.Thickness(0)
+    $stop.Tag = $State.Id
+    [System.Windows.Controls.Grid]::SetColumn($stop, 3)
+    $stop.Add_Click({
+        param($s, $e)
+        try {
+            $id = $s.Tag
+            $st = $script:JobRows[$id]
+            if (-not $st) { return }
+            $j = $st.Job
+            if ($j -and $j.State -eq 'Running') {
+                Stop-Job -Job $j -ErrorAction SilentlyContinue
+                Update-Output ("Stop requested for Job #{0}." -f $id) "WARN"
             } else {
-                $icon.Text = '-'; $icon.Foreground = $script:brushConv.ConvertFromString("#94A3B8")
+                Update-Output ("Job #{0} is not running." -f $id) "WARN"
             }
-            $row.AddChild($icon) | Out-Null
-
-            $tb = New-Object System.Windows.Controls.TextBlock
-            $tb.Text = $ln
-            $tb.TextWrapping = 'Wrap'
-            $tb.FontSize = 11.5
-            $tb.Margin = '4,0,0,0'
-            if ($ln -like "*Success*" -or $ln -like "*Removed*") {
-                $tb.Foreground = $script:brushConv.ConvertFromString("#065F46")
-            } elseif ($ln -like "*Failed*") {
-                $tb.Foreground = $script:brushConv.ConvertFromString("#991B1B")
-            } else {
-                $tb.Foreground = $script:brushConv.ConvertFromString("#334155")
-            }
-            $row.AddChild($tb) | Out-Null
-            $bodyPanel.Children.Add($row) | Out-Null
+        } catch {
+            Update-Output ("Stop failed for Job #{0}: {1}" -f $s.Tag, $_.Exception.Message) "ERROR"
         }
-    } else {
-        $tb = New-Object System.Windows.Controls.TextBlock
-        $tb.Text = "No details returned."
-        $tb.Margin = '0,3,0,3'
-        $tb.Foreground = $script:brushConv.ConvertFromString("#94A3B8")
-        $bodyPanel.Children.Add($tb) | Out-Null
-    }
+    })
+    $grid.AddChild($stop) | Out-Null
 
-    ($dlg.FindName('SuccessCount')).Text = "$succ succeeded"
-    ($dlg.FindName('FailCount')).Text = "$fail failed"
+    $State.Row      = $grid
+    $State.LabelTxt = $label
+    $State.JobBar   = $bar
+    $State.JobText  = $txt
+    $State.StopBtn  = $stop
 
-    # Color the header icon based on results
-    $iconBorder = $dlg.FindName('SummaryIcon')
-    $iconText = $dlg.FindName('SummaryIconTxt')
-    if ($fail -eq 0 -and $succ -gt 0) {
-        $iconBorder.Background = $script:brushConv.ConvertFromString("#10B981")
-        $iconText.Text = '+'
-    } elseif ($succ -eq 0 -and $fail -gt 0) {
-        $iconBorder.Background = $script:brushConv.ConvertFromString("#EF4444")
-        $iconText.Text = '!'
-    } else {
-        $iconBorder.Background = $script:brushConv.ConvertFromString("#F59E0B")
-        $iconText.Text = '~'
-    }
-
-    ($dlg.FindName('CloseBtn')).Add_Click({ $dlg.Close() })
-    if ($script:Window) { $dlg.Owner = $script:Window }
-    $dlg.ShowDialog() | Out-Null
+    $script:JobRows[$State.Id] = $State
+    $JobsPanel.Children.Add($grid) | Out-Null
 }
 
-$PollTimer.Add_Tick({
-    if (-not $Global:UninstallJob) { return }
+# Function: Start-UninstallJob
+# Spawns a new background uninstall job and registers its UI row. Multiple
+# jobs may run at the same time.
+function Start-UninstallJob {
+    param(
+        [string]$ComputerName,
+        [object[]]$AppList
+    )
 
-    # stream new lines
-    $lines = Receive-Job -Job $Global:UninstallJob -Keep -ErrorAction SilentlyContinue
-    if ($lines) {
-        $start = $Global:JobLinesSeen
-        if ($start -lt $lines.Count) {
-            foreach ($l in $lines[$start..($lines.Count - 1)]) {
-                if ($l -is [bool] -or $l -is [System.Diagnostics.Process]) { continue }
-                $txt = $l.ToString()
+    $Global:NextJobId++
+    $id = $Global:NextJobId
+
+    $logPath = Join-Path $script:LogDir ("uninstall-{0}-{1}.log" -f $id, (Get-Date -Format "yyyyMMddHHmmss"))
+    try { [System.IO.File]::WriteAllText($logPath, "") } catch { $logPath = $null }
+
+    $job = Start-Job -ScriptBlock $UninstallScriptBlock -ArgumentList $ComputerName, $AppList, $logPath
+
+    $state = [pscustomobject]@{
+        Id        = $id
+        Job       = $job
+        Target    = $ComputerName
+        Total     = $AppList.Count
+        Done      = 0
+        LinesSeen = 0
+        LogPath   = $logPath
+        Row       = $null
+        LabelTxt  = $null
+        JobBar    = $null
+        JobText   = $null
+        StopBtn   = $null
+        LastActivity = Get-Date
+        LastBeat     = Get-Date
+    }
+
+    $Global:UninstallJobs[$id] = $state
+    Invoke-Ui { New-JobRow -State $state }
+
+    Update-Output ("Job #{0} started: {1} app(s) on {2}." -f $id, $AppList.Count, $ComputerName) "INFO"
+    return $id
+}
+
+$PollTimer = New-Object System.Windows.Threading.DispatcherTimer
+$PollTimer.Interval = [TimeSpan]::FromMilliseconds(400)
+
+$PollTimer.Add_Tick({
+    if ($Global:UninstallJobs.Count -eq 0) { return }
+
+    $finishedIds = New-Object System.Collections.ArrayList
+
+    foreach ($id in @($Global:UninstallJobs.Keys)) {
+        $state = $Global:UninstallJobs[$id]
+        if (-not $state) { continue }
+
+        # Stream any new log lines from the job's live file to the Message Center
+        $lines = @()
+        if ($state.LogPath -and (Test-Path $state.LogPath)) {
+            try {
+                $fs = [System.IO.File]::Open($state.LogPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                try {
+                    $sr = New-Object System.IO.StreamReader($fs)
+                    $raw = $sr.ReadToEnd()
+                    $sr.Dispose()
+                } finally { $fs.Dispose() }
+                if ($raw) {
+                    $lines = @($raw -split "\r?\n")
+                    if (-not $raw.EndsWith("`n")) { $lines = $lines[0..($lines.Count - 2)] }
+                }
+            } catch { $lines = @() }
+        }
+
+        if ($lines.Count -gt $state.LinesSeen) {
+            $start = $state.LinesSeen
+            for ($i = $start; $i -lt $lines.Count; $i++) {
+                $l = $lines[$i]
+                if ([string]::IsNullOrWhiteSpace($l)) { continue }
+                $txt = $l
                 Update-Output $txt
-                if ($txt -match 'RESULT:') { $Global:UninstallDone++ }
+                $state.LastActivity = Get-Date
+                if ($txt -match '\[PROGRESS\]\s*(\d+)/(\d+)') {
+                    $state.Done = [int]$matches[1]
+                }
             }
-            $Global:JobLinesSeen = $lines.Count
-            # Update progress bar
-            if ($Global:UninstallTotal -gt 0) {
-                $pct = [math]::Min(100, [math]::Floor($Global:UninstallDone / $Global:UninstallTotal * 100))
+            $state.LinesSeen = $lines.Count
+
+            Invoke-Ui {
+                if ($state.JobBar) {
+                    $state.JobBar.IsIndeterminate = $false
+                    $state.JobBar.Maximum = [math]::Max(1, $state.Total)
+                    $state.JobBar.Value   = [math]::Min($state.Total, $state.Done)
+                }
+                if ($state.JobText) { $state.JobText.Text = "{0}/{1}" -f $state.Done, $state.Total }
+            }
+        }
+
+        # If the job is running but idle ~8s, animate the bar and show elapsed time so the UI never looks frozen.
+        if ($state.Job.State -eq 'Running') {
+            $now = Get-Date
+            $idle = $now - $state.LastActivity
+            if ($idle.TotalSeconds -ge 8) {
+                $secs = [int][math]::Floor($idle.TotalSeconds)
+                $mins = [int][math]::Floor($secs / 60)
+                $rem  = [int]($secs % 60)
                 Invoke-Ui {
-                    if ($UninstallProgressBar) { $UninstallProgressBar.Value = $pct }
-                    if ($UninstallProgressText) { $UninstallProgressText.Text = "{0}/{1}" -f $Global:UninstallDone, $Global:UninstallTotal }
+                    if ($state.JobBar -and -not $state.JobBar.IsIndeterminate) { $state.JobBar.IsIndeterminate = $true }
+                    if ($state.JobText) { $state.JobText.Text = "working {0}:{1:d2}" -f $mins, $rem }
+                }
+                if (($now - $state.LastBeat).TotalSeconds -ge 20) {
+                    $state.LastBeat = $now
+                    Update-Output ("Still working on {0} (elapsed {1}:{2:d2})..." -f $state.Target, $mins, $rem) "DETAIL"
                 }
             }
         }
+
+        # Completion / failure / stop
+        if ($state.Job.State -in @('Completed','Failed','Stopped')) {
+            $finishedIds.Add($id) | Out-Null
+            $jobState = $state.Job.State
+            $reason = $state.Job.JobStateInfo.Reason
+
+            # Flush any lines written right before the job completed
+            $lines = @()
+            if ($state.LogPath -and (Test-Path $state.LogPath)) {
+                try {
+                    $fs = [System.IO.File]::Open($state.LogPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                    try {
+                        $sr = New-Object System.IO.StreamReader($fs)
+                        $raw = $sr.ReadToEnd()
+                        $sr.Dispose()
+                    } finally { $fs.Dispose() }
+                    if ($raw) { $lines = @($raw -split "\r?\n") }
+                } catch { $lines = @() }
+            }
+            if ($lines.Count -gt $state.LinesSeen) {
+                for ($i = $state.LinesSeen; $i -lt $lines.Count; $i++) {
+                    $l = $lines[$i]
+                    if ([string]::IsNullOrWhiteSpace($l)) { continue }
+                    $txt = $l
+                    Update-Output $txt
+                    $state.LastActivity = Get-Date
+                    if ($txt -match '\[PROGRESS\]\s*(\d+)/(\d+)') { $state.Done = [int]$matches[1] }
+                }
+                $state.LinesSeen = $lines.Count
+            }
+
+            # Remove the live log file now that the job is done
+            try { if ($state.LogPath -and (Test-Path $state.LogPath)) { Remove-Item -LiteralPath $state.LogPath -Force -ErrorAction SilentlyContinue } } catch {}
+
+            if ($jobState -eq 'Stopped') {
+                Update-Output ("Job #{0} stopped by user." -f $state.Id) "WARN"
+            } elseif ($jobState -eq 'Failed' -and $reason) {
+                Update-Output ("Job #{0} ended. State: {1}. Reason: {2}" -f $state.Id, $jobState, $reason.Message) "ERROR"
+            } else {
+                Update-Output ("Job #{0} ended. State: {1}." -f $state.Id, $jobState) "INFO"
+            }
+
+            # Mark the row as complete
+            $state.Done = $state.Total
+            Invoke-Ui {
+                if ($state.JobBar) {
+                    $state.JobBar.IsIndeterminate = $false
+                    $state.JobBar.Value = $state.JobBar.Maximum
+                }
+                if ($state.JobText) { $state.JobText.Text = "{0}/{1}" -f $state.Done, $state.Total }
+                if ($state.StopBtn) { $state.StopBtn.IsEnabled = $false }
+                if ($state.LabelTxt) {
+                    $color = if ($jobState -eq 'Stopped') { "#F59E0B" }
+                             elseif ($jobState -eq 'Failed') { "#EF4444" }
+                             else { "#10B981" }
+                    $state.LabelTxt.Foreground = $script:brushConv.ConvertFromString($color)
+                }
+            }
+
+            try { Remove-Job -Job $state.Job -Force -ErrorAction SilentlyContinue } catch {}
+        }
     }
 
-    # completion
-    if ($Global:UninstallJob.State -in @('Completed','Failed','Stopped')) {
-        $PollTimer.Stop()
-
-        $allLines = Receive-Job -Job $Global:UninstallJob -Keep -ErrorAction SilentlyContinue
-        $state = $Global:UninstallJob.State
-        $reason = $Global:UninstallJob.JobStateInfo.Reason
-
-        if ($state -eq 'Failed' -and $reason) {
-            Update-Output ("Job ended. State: {0}. Reason: {1}" -f $state, $reason.Message) "ERROR"
-        } else {
-            Update-Output ("Job ended. State: {0}." -f $state) "INFO"
+    # Remove finished rows and states
+    foreach ($id in $finishedIds) {
+        $state = $Global:UninstallJobs[$id]
+        if ($state -and $state.Row -and $JobsPanel) {
+            Invoke-Ui { $JobsPanel.Children.Remove($state.Row) | Out-Null }
         }
+        $Global:UninstallJobs.Remove($id) | Out-Null
+        $script:JobRows.Remove($id) | Out-Null
+    }
 
-        # Build summary
-        $strings = @()
-        foreach ($x in ($allLines | Where-Object { $_ -and ($_ -isnot [bool]) })) { $strings += $x.ToString() }
+    # Aggregate progress across all active jobs
+    $totTotal = 0
+    $totDone  = 0
+    $anyWorking = $false
+    foreach ($s in $Global:UninstallJobs.Values) {
+        $totTotal += $s.Total
+        $totDone  += $s.Done
+        if ($s.Job.State -eq 'Running' -and ((Get-Date) - $s.LastActivity).TotalSeconds -ge 8) { $anyWorking = $true }
+    }
+    Invoke-Ui {
+        if ($UninstallProgressBar) {
+            $UninstallProgressBar.IsIndeterminate = $anyWorking
+            if (-not $anyWorking) {
+                $UninstallProgressBar.Maximum = [math]::Max(1, $totTotal)
+                $UninstallProgressBar.Value   = $totDone
+            }
+        }
+        if ($UninstallProgressText) {
+            if ($anyWorking) { $UninstallProgressText.Text = "working..." }
+            else             { $UninstallProgressText.Text = "{0}/{1}" -f $totDone, $totTotal }
+        }
+    }
 
-        $summary = $strings | Where-Object { $_ -like "[SUMMARY]*" -or $_ -like "[RESULT]*" -or $_ -like "[DETAIL]*" }
-        $subtitle = ($summary | Where-Object { $_ -like "[SUMMARY]*" } | Select-Object -First 1)
-        if (-not $subtitle) { $subtitle = "Summary not available." }
-
-        $body = @()
-        if ($summary) { $body = $summary | Where-Object { $_ -notlike $subtitle } }
-
-        # Cleanup job
-        try { Remove-Job -Job $Global:UninstallJob -Force | Out-Null } catch {}
-        $Global:UninstallJob = $null
-        $Global:JobLinesSeen = 0
-        $Global:UninstallTotal = 0
-        $Global:UninstallDone  = 0
-
-        # Hide progress
+    # All jobs finished -> hide progress and refresh the app list
+    if ($Global:UninstallJobs.Count -eq 0 -and $script:AnyUninstallRan) {
+        $script:AnyUninstallRan = $false
         Invoke-Ui {
             if ($UninstallProgressPanel) { $UninstallProgressPanel.Visibility = 'Collapsed' }
-            if ($UninstallProgressBar)   { $UninstallProgressBar.Value = 100 }
+            if ($UninstallProgressBar)   { $UninstallProgressBar.Value = 0 }
         }
 
-        # Show summary dialog
-        Show-UninstallSummaryDialog -Title "Uninstall summary" -Subtitle $subtitle -Lines $body
-
-        # Refresh inventory after uninstall
         $c = if ($PCNameBox.Text) { $PCNameBox.Text.Trim() } else { $env:COMPUTERNAME }
-        $apps = Get-InstalledApps -ComputerName $c
-        Set-AppList -Apps $apps
-        if ($SessionLoadedFromValue) { $SessionLoadedFromValue.Text = $c }
-        Set-LastAction "Refreshed app list after uninstall."
+        if ([string]::IsNullOrWhiteSpace($c)) { $c = $env:COMPUTERNAME }
+        Update-Output "Refreshing app list after uninstall..." "INFO"
+        Start-LoadApps -ComputerName $c -ActionLabel "Reload"
     }
 })
 
@@ -2438,30 +2907,22 @@ $PollTimer.Start()
 Pump-UI
 
 #region ========================= BUTTON HANDLERS =============================
-# Shared helper: loads apps from target, updates UI, and returns app list.
-function Invoke-LoadApps {
-    param(
-        [string]$ActionLabel
-    )
-
-    $c = if ($PCNameBox.Text) { $PCNameBox.Text.Trim() } else { $env:COMPUTERNAME }
-    if ([string]::IsNullOrWhiteSpace($c)) { $c = $env:COMPUTERNAME }
-
-    Update-Output ("{0} clicked. Target='{1}'" -f $ActionLabel, $c) "DETAIL"
-
-    $apps = Get-InstalledApps -ComputerName $c
-    Set-AppList -Apps $apps
-
-    if ($SessionLoadedFromValue) { $SessionLoadedFromValue.Text = $c }
-    Update-Output ("{0} complete. Apps={1}" -f $ActionLabel, $apps.Count) "RESULT"
-    return $apps
-}
-
-# Load Apps
+# Load Applications (target from the PCNameBox, or local if empty)
 $LoadAppsButton.Add_Click({
     try {
-        $result = Invoke-LoadApps -ActionLabel "Load"
-        Set-LastAction ("Loaded {0} app(s)." -f $result.Count)
+        $c = if ($PCNameBox.Text) { $PCNameBox.Text.Trim() } else { $env:COMPUTERNAME }
+        Start-LoadApps -ComputerName $c -ActionLabel "Load"
+    }
+    catch {
+        Update-Output ("Load failed: {0}" -f $_.Exception.Message) "ERROR"
+        if ($_.ScriptStackTrace) { Update-Output ("Stack: {0}" -f $_.ScriptStackTrace) "DETAIL" }
+    }
+})
+
+# Load This PC Apps (always local)
+$LoadLocalButton.Add_Click({
+    try {
+        Start-LoadApps -ComputerName $env:COMPUTERNAME -ActionLabel "Load"
     }
     catch {
         Update-Output ("Load failed: {0}" -f $_.Exception.Message) "ERROR"
@@ -2472,8 +2933,8 @@ $LoadAppsButton.Add_Click({
 # Refresh Apps
 $RefreshButton.Add_Click({
     try {
-        Invoke-LoadApps -ActionLabel "Reload" | Out-Null
-        Set-LastAction "Reloaded app list."
+        $c = if ($PCNameBox.Text) { $PCNameBox.Text.Trim() } else { $env:COMPUTERNAME }
+        Start-LoadApps -ComputerName $c -ActionLabel "Reload"
     }
     catch {
         Update-Output ("Refresh failed: {0}" -f $_.Exception.Message) "ERROR"
@@ -2481,18 +2942,17 @@ $RefreshButton.Add_Click({
     }
 })
 
-# Uninstall Selected
+# Uninstall Selected (multiple jobs may run at the same time)
 $UninstallButton.Add_Click({
     try {
-        # prevent concurrent job
-        if ($Global:UninstallJob -and $Global:UninstallJob.State -notin @('Completed','Failed','Stopped')) {
-            Update-Output "Another uninstall job is currently running. Please wait..." "WARN"
-            return
-        }
-
         $selected = @($AppListView.SelectedItems)
         if (-not $selected -or $selected.Count -eq 0) {
             Update-Output "No applications selected." "WARN"
+            return
+        }
+
+        if ($Global:LoadJob) {
+            Update-Output "Please wait until the app list finishes loading." "WARN"
             return
         }
 
@@ -2511,18 +2971,12 @@ $UninstallButton.Add_Click({
         Update-Output ("Launching uninstall job for {0} app(s) on {1}..." -f $selected.Count, $c) "INFO"
         Set-LastAction ("Uninstalling {0} app(s)..." -f $selected.Count)
 
-        # Show progress bar
-        $Global:UninstallTotal = $selected.Count
-        $Global:UninstallDone  = 0
+        # Show the aggregate progress area and start a new concurrent job
+        $script:AnyUninstallRan = $true
         Invoke-Ui {
             if ($UninstallProgressPanel) { $UninstallProgressPanel.Visibility = 'Visible' }
-            if ($UninstallProgressBar)   { $UninstallProgressBar.Value = 0; $UninstallProgressBar.Maximum = 100 }
-            if ($UninstallProgressText)  { $UninstallProgressText.Text = "0/{0}" -f $selected.Count }
         }
-
-        # Start job
-        $Global:UninstallJob = Start-Job -ScriptBlock $UninstallScriptBlock -ArgumentList $c, $selected
-        $Global:JobLinesSeen = 0
+        Start-UninstallJob -ComputerName $c -AppList $selected
     }
     catch {
         Update-Output ("Uninstall start failed: {0}" -f $_.Exception.Message) "ERROR"
@@ -2685,7 +3139,8 @@ Pump-UI
 # Session pills
 Set-SessionInfo
 
-# Initial state
+# Initial state (program opens empty — click "Load This PC Apps" or
+# "Load Applications" to inventory a machine in the background)
 $Global:AllApps = @()
 $Global:AppView = $null
 $script:FilterPattern = $null
@@ -2694,26 +3149,7 @@ Update-Stats -Apps @() -SelectedApps @()
 Reset-Details
 Set-LastAction "Ready."
 Update-Output "Ready." "INFO"
-
-# Defer heavy registry scan until window is fully rendered (one-shot timer)
-$AutoLoadTimer = New-Object System.Windows.Threading.DispatcherTimer
-$AutoLoadTimer.Interval = [TimeSpan]::FromMilliseconds(500)
-$script:AutoLoadTimerRef = $AutoLoadTimer
-$AutoLoadTimer.Add_Tick({
-    $script:AutoLoadTimerRef.Stop()
-    Update-Output "Scanning registry for installed applications..." "DETAIL"
-    Set-LastAction "Scanning installed apps..."
-    try {
-        $apps = Get-InstalledApps -ComputerName $env:COMPUTERNAME
-        Set-AppList -Apps $apps
-        Set-LastAction ("Loaded {0} app(s) from this PC." -f $apps.Count)
-        Update-Output ("Auto-loaded {0} app(s) from this PC." -f $apps.Count) "RESULT"
-    }
-    catch {
-        Update-Output ("Auto-load failed: {0}" -f $_.Exception.Message) "ERROR"
-    }
-})
-$AutoLoadTimer.Start()
+Update-Output "Program opens empty. Click 'Load This PC Apps' (local) or 'Load Applications' (local/remote) to inventory." "INFO"
 
 # Window already shown; enter WPF message pump (blocks until window closes)
 $script:Window.Add_Closed({ [System.Windows.Threading.Dispatcher]::ExitAllFrames() })
