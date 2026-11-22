@@ -4,15 +4,16 @@
 
 **WPF GUI for Windows application management**
 
-Browse, inspect, export, and silently uninstall applications from local or remote Windows machines — with automatic silent-switch detection, WinGet fallback, and leftover cleanup.
+Browse, inspect, export, and silently uninstall applications on local or remote Windows machines. The tool picks silent switches, falls back to WinGet, and cleans up leftover files.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![PowerShell](https://img.shields.io/badge/powershell-5.1%2B-blue.svg)
-![Platform](https://img.shields.io/badge/Windows-10%2F11-blue.svg)
-![UI](https://img.shields.io/badge/UI-WPF%20GUI-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1-green.svg)
+[![Mode](https://img.shields.io/badge/Mode-CLI-334155?style=for-the-badge)](#-usage)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?style=for-the-badge&logo=powershell&logoColor=white)](https://learn.microsoft.com/en-us/powershell/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0F172A?style=for-the-badge)](#%EF%B8%8F-requirements)
+[![UI](https://img.shields.io/badge/UI-WPF%20Tailwind%20Slate-3B82F6?style=for-the-badge&logo=windows&logoColor=white)](#%EF%B8%8F-usage)
+[![License](https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge)](#-license)
+[![Version](https://img.shields.io/badge/Version-1.1-334155?style=for-the-badge)](#-overview)
 
-[Features](#-core-features) • [Architecture](#️-architecture) • [Uninstall Engine](#-uninstall-engine) • [Requirements](#️-requirements) • [Troubleshooting](#-troubleshooting)
+[Overview](#-overview) • [Features](#-core-features) • [Architecture](#%EF%B8%8F-architecture) • [Uninstall Engine](#-uninstall-engine) • [Requirements](#%EF%B8%8F-requirements) • [Troubleshooting](#-troubleshooting) • [License](#-license)
 
 </div>
 
@@ -20,17 +21,17 @@ Browse, inspect, export, and silently uninstall applications from local or remot
 
 # 📖 Overview
 
-**Remote App Uninstaller** is a modern WPF-based GUI tool for Windows application management. It reads the installed-app inventory from the registry (64-bit and 32-bit views), provides real-time filtering and a full property inspector, and runs uninstalls in background jobs with automatic silent-switch detection, WinGet fallback, and leftover cleanup — locally or over WinRM.
+Remote App Uninstaller is a WPF window for managing installed Windows applications. It reads the registry in both 64-bit and 32-bit views, filters the list as you type, shows full app properties, and runs uninstalls in background jobs on the local machine or over WinRM. It chooses silent switches for the installer type, tries WinGet if the normal uninstall fails, and removes leftover files where it can.
 
-The entire tool is a **self-contained single script** (`RemoteAppUninstaller.ps1`, ~3,300 lines): no external modules, no config files, no installer.
+The whole tool is one file (`RemoteAppUninstaller.ps1`, about 3,300 lines). It needs no extra modules, config files, or installer.
 
 ---
 
 ## 🖼️ Screenshots
 
-![Remote App Uninstaller main window — app inventory, stats cards, details inspector, and Message Center](Screenshot.png)
+![Remote App Uninstaller main window with app inventory, stats cards, details inspector, and Message Center](Screenshot.png)
 
-*Main window: stats dashboard, live-filtered app list, full property inspector, per-job uninstall progress rows, and the dark Message Center.*
+*Main window with the stats cards, filtered app list, property inspector, per-job progress rows, and Message Center.*
 
 ---
 
@@ -46,7 +47,7 @@ Or bypass the execution policy:
 powershell.exe -ExecutionPolicy Bypass -File .\RemoteAppUninstaller.ps1
 ```
 
-Double-click `RemoteAppUninstaller.exe` also works (compiled launcher, no console window). The window opens empty — click **Load This PC Apps** (local) or **Load Applications** (local or remote) to inventory a machine.
+You can also double-click `RemoteAppUninstaller.exe`, which is a compiled launcher with no console window. The window opens empty. Click **Load This PC Apps** for the local machine or **Load Applications** for a local or remote target.
 
 ### Control Reference
 
@@ -74,29 +75,42 @@ Double-click `RemoteAppUninstaller.exe` also works (compiled launcher, no consol
 # ✨ Core Features
 
 ### 🔹 Application Inventory
-* **Local & remote inventory** — reads both registry views: `HKLM:\SOFTWARE\...\Uninstall` and `HKLM:\SOFTWARE\WOW6432Node\...`
-* **WinRM remote access** — via `Invoke-Command` with an ICMP connectivity pre-check
-* **Load on demand, never freezes** — inventory runs in a `Start-Job`; the UI shows a progress overlay until it finishes, then auto-refreshes after uninstalls
+* Reads both registry views, `HKLM:\SOFTWARE\...\Uninstall` and `HKLM:\SOFTWARE\WOW6432Node\...`, locally or on a remote target
+* Remote access uses `Invoke-Command` after an ICMP connectivity check
+* Inventory runs in a `Start-Job`, so the window stays responsive. A progress overlay covers the wait, and the list refreshes after uninstalls
 
 ### 🔹 Live Sidebar & Stats
-* **Target device card** — Connected/Offline indicator, This PC (blue) vs Remote (orange) badge, device name, IP, logged-on user, OS version, last activity
-* **Live stats dashboard** — TOTAL / MSI / EXE-OTHER / SELECTED counters, updated on every selection change
+* The target card shows Connected or Offline, a This PC or Remote badge, and the device name, IP, logged-on user, OS version, and last activity
+* Counters for total, MSI, other, and selected apps update whenever the selection changes
 
 ### 🔹 Search & Details Inspector
-* **Real-time filtering** — case-insensitive regex across Name, Publisher, and Version
-* **Full property grid** — Publisher, Version, InstallDate, UninstallString, Product Code, Upgrade Code, Architecture, and ~30 more fields (empty fields hidden)
-* **Multi-select comparison** — compact side-by-side key fields; clipboard copy per field or per row
+* A case-insensitive regex filter runs across Name, Publisher, and Version
+* The property grid shows Publisher, Version, InstallDate, UninstallString, Product Code, Upgrade Code, Architecture, and about 30 more fields. Empty fields are hidden
+* You can select several apps and compare their key fields side by side, and copy any field or row
 
 ### 🔹 Silent Uninstall Engine
-* **Auto-detection** — MSI, Inno Setup, NSIS, Wise, InstallShield, or generic EXE
-* **Correct silent switches** appended per installer type (see [Silent Switch Mapping](#silent-switch-mapping))
-* **Safe execution** — commands split into executable + arguments, launched via `Start-Process`, never through a shell
-* **Concurrent background jobs** — each batch uninstalls via `Start-Job` with its own live progress row and Stop button
-* **Verification** — the registry is re-checked after uninstall; **WinGet fallback** (`winget uninstall --silent`) runs automatically if the traditional uninstall fails
-* **Leftover cleanup (best-effort)** — leftover registry keys, Program Files folders, Start Menu shortcuts, and AppData remnants
+* Detects MSI, Inno Setup, NSIS, Wise, InstallShield, and generic EXE installers
+* Adds the right silent switches for each type (see [Silent Switch Mapping](#silent-switch-mapping))
+* Splits each command into executable and arguments and runs it with `Start-Process`, not through a shell
+* Runs each batch in its own `Start-Job` with a progress row and Stop button
+* Rechecks the registry afterwards. If the app is still listed, it tries `winget uninstall --silent`
+* Best-effort cleanup removes leftover registry keys, Program Files folders, Start Menu shortcuts, and AppData remnants
 
 ### 🔹 Export
-* **CSV export** — saves the currently **filtered** list with an auto-generated filename (`<device>-<timestamp>-apps.csv`)
+* Saves the filtered list to CSV with a generated name in the form `<device>-<timestamp>-apps.csv`
+
+---
+
+# 📂 Project Structure
+
+```text
+RemoteAppUninstaller/
+│
+├── RemoteAppUninstaller.ps1      # WPF application source
+├── RemoteAppUninstaller.exe      # Packaged executable
+├── Screenshot.png                # Documentation screenshot
+└── README.md
+```
 
 ---
 
@@ -114,7 +128,7 @@ PowerShell (STA) ──► WPF Window (Dispatcher)
                                        └─ DispatcherTimer polls jobs → per-job progress rows, Stop buttons
 ```
 
-Background jobs cannot return partial output while running on PowerShell 5.1, so every job **appends its log lines to a live log file** that the UI polls with a timer — this is what makes output stream in real time.
+On PowerShell 5.1, a background job cannot return output while it is still running. Each job therefore writes its lines to a log file, and the window polls that file with a timer to show progress as it happens.
 
 ### Code Regions (in file order)
 
@@ -149,16 +163,16 @@ Background jobs cannot return partial output while running on PowerShell 5.1, so
 | **Inno / NSIS / Wise / InstallShield** | `unins*.exe` in the path | `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` |
 | **Generic EXE** | `.exe` and no silent flag present | `/S` |
 
-The command is then split (`Split-UninstallCommand`) into executable + arguments and launched with `Start-Process` — never through a shell.
+The command is then split (`Split-UninstallCommand`) into executable and arguments and launched with `Start-Process`, without a shell.
 
 ### Per-App Removal Pipeline (`Remove-Application`)
 
-1. **Reachability** — for remote targets, a quick ping check (skips unreachable hosts)
-2. **Stop processes & services** — matching process names/descriptions and services are force-stopped (remote capped at 45 s)
-3. **Run uninstall** — silent switches applied, run hidden with `-Wait`. **Remote:** runs via `Invoke-Command -AsJob` while the app is polled every 15 s for up to **4 minutes** (Inno uninstallers often linger; "gone from remote registry" counts as success). Elevation requests and exit codes surface in the log
-4. **Verify** — registry re-checked for a matching `DisplayName` on the target
-5. **WinGet fallback** — `winget uninstall --name "<name>" --exact --silent --accept-source-agreements --accept-package-agreements`
-6. **Leftover cleanup** — registry keys, Program Files folders, Start Menu entries, AppData remnants (best-effort)
+1. **Reachability:** for remote targets, a quick ping check (skips unreachable hosts)
+2. **Stop processes & services:** matching process names/descriptions and services are force-stopped (remote capped at 45 s)
+3. **Run uninstall:** silent switches applied, run hidden with `-Wait`. **Remote:** runs via `Invoke-Command -AsJob` while the app is polled every 15 s for up to **4 minutes** (Inno uninstallers often linger; "gone from remote registry" counts as success). Elevation requests and exit codes surface in the log
+4. **Verify:** registry re-checked for a matching `DisplayName` on the target
+5. **WinGet fallback:** `winget uninstall --name "<name>" --exact --silent --accept-source-agreements --accept-package-agreements`
+6. **Leftover cleanup:** registry keys, Program Files folders, Start Menu entries, AppData remnants (best-effort)
 
 Each app produces `{ App, Status, Note, Details[] }` with `Status` of `Success` or `Failed`; a batch summary with app names is written to the Message Center.
 
@@ -230,11 +244,11 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value "target1,target2" -Force
 
 # 🛡 Operational Notes
 
-* **Authorization** — uninstalling software on machines you do not own or administer requires explicit permission; inventory data is sensitive too
-* **Test in staging** — validate silent switches against a pilot app before batch uninstalls; leftover cleanup is best-effort, not a guarantee
-* **Admin rights** — some uninstalls (MSI per-machine, Program Files) require elevation; the tool surfaces elevation requests in the log
-* **WinRM security** — restrict `TrustedHosts` to named targets and keep remoting firewall rules scoped to your management subnet
-* **Audit trail** — per-job logs under `%TEMP%\RemoteAppUninstaller-Logs\` record every removal; retain them per your org's change-management policy
+* Get permission before uninstalling software on machines you do not own or administer. The inventory data is sensitive as well
+* Try silent switches on one pilot app before a batch run. Leftover cleanup is best-effort
+* Some uninstalls, such as per-machine MSI and Program Files apps, need elevation. The tool reports elevation requests in the log
+* Keep `TrustedHosts` limited to named targets and scope remoting firewall rules to your management subnet
+* Per-job logs under `%TEMP%\RemoteAppUninstaller-Logs\` record every removal. Keep them under your change-management policy
 
 ---
 
@@ -249,10 +263,10 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value "target1,target2" -Force
 
 **Reliability / bug fixes**
 
-* Fixed GUI crash **"Format specifier was invalid"** — `[math]::Floor()` doubles break `{0:d2}` time formats; values now cast to `[int]` first
-* Fixed apps reported **Failed despite being removed** — `Test-AppStillInstalled` used `return` inside `ForEach-Object` (emits a truthy array, doesn't exit); rewritten with `foreach` + `break`
-* Remote uninstalls **no longer hang or time out early** — `Invoke-Command -AsJob` + 15 s polling up to 4 minutes; elevation requests, missing executables, and exit codes surfaced in the log
-* Process-stop phase **no longer hangs** — remote process stop wrapped in a job with a 45 s `Wait-Job` timeout; matching Windows services also force-stopped
+* Fixed GUI crash **"Format specifier was invalid"**: `[math]::Floor()` doubles break `{0:d2}` time formats; values now cast to `[int]` first
+* Fixed apps reported **Failed despite being removed**: `Test-AppStillInstalled` used `return` inside `ForEach-Object` (emits a truthy array, doesn't exit); rewritten with `foreach` + `break`
+* Remote uninstalls **no longer hang or time out early**: `Invoke-Command -AsJob` + 15 s polling up to 4 minutes; elevation requests, missing executables, and exit codes surfaced in the log
+* Process-stop phase **no longer hangs**: remote process stop wrapped in a job with a 45 s `Wait-Job` timeout; matching Windows services also force-stopped
 
 **UX / UI**
 
@@ -274,7 +288,7 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value "target1,target2" -Force
 
 ## 👤 Author
 
-**Mohammad Abdulkader Omar**  
+**Mohammad Abdelkader Omar**  
 GitHub: [@mabdulkadr](https://github.com/mabdulkadr)  
 Website: [momar.tech](https://momar.tech)  
 
